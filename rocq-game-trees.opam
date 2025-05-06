@@ -1,0 +1,27 @@
+opam-version: "2.0"
+synopsis: "Definitions and functions about game trees in Rocq"
+homepage: "tbd"
+license: "Apache-2.0"
+bug-reports: "tbd/issues"
+depends: [
+  "ocaml"
+  "coq" {= "8.20.1"}
+  "coq-ext-lib" {>= "0.13"}
+  "coq-simple-io" {>= "1.11.0"}
+]
+build: [make "-j%{jobs}%"]
+install: [make "-f" "Makefile.coq" "install"]
+flags: light-uninstall
+remove: ["rm" "-R" "%{lib}%/coq/user-contrib/GameTrees"]
+maintainer: "jkorkut@bloomberg.net"
+authors: [
+  "Joomy Korkut"
+]
+tags: [
+  "date:2025-03-19"
+  "logpath:GameTrees"
+  "category:Computer Science/Algorithms/Correctness proofs of algorithms"
+  "category:Computer Science/Data Types and Data Structures"
+  "keyword:termination"
+  "keyword:trees"
+]
