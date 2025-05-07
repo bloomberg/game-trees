@@ -8,7 +8,7 @@ clean: Makefile.coq
 	rm -f tictactoe.{ml,mli}
 
 Makefile.coq: _CoqProject
-	coq_makefile -f _CoqProject -o Makefile.coq
+	rocq makefile -f _CoqProject -o Makefile.coq
 
 run:
 	ocaml tictactoe.ml

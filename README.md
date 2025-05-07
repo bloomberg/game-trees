@@ -12,7 +12,7 @@
 
 ## Rationale
 
-This repository contains functions and proofs about game trees in Rocq, implemented as [rose trees](https://en.wikipedia.org/wiki/Rose_tree). We provide two different flavors of game trees, inductive and coinductive game trees. Inductive game trees are finite by construction, but it is difficult to populate a tree from an initial value and a function that gives the next steps. We have to prove that the population (anamorphism or unfolding of a rose tree) terminates. Coinductive game trees can be infinite or finite. Populating a coinductive tree is easy since we do not have to prove termination, but we need bisimulation to reason about them.
+This repository contains functions and proofs about game trees in [Rocq](https://rocq-prover.org/), implemented as [rose trees](https://en.wikipedia.org/wiki/Rose_tree). We provide two different flavors of game trees, inductive and coinductive game trees. Inductive game trees are finite by construction, but it is difficult to populate a tree from an initial value and a function that gives the next steps. We have to prove that the population (anamorphism or unfolding of a rose tree) terminates. Coinductive game trees can be infinite or finite. Populating a coinductive tree is easy since we do not have to prove termination, but we need bisimulation to reason about them.
 
 ## Quick start
 
@@ -24,9 +24,9 @@ To showcase our library, we provide an example: a tic-tac-toe game for which we 
 
 ## Building
 
-You have to have the `coq-released` registry of `opam`. You can obtain it by running `opam repo add coq-released https://coq.inria.fr/opam/released` if you do not already have it.
+You have to have the `rocq-released` registry of `opam`. You can obtain it by running `opam repo add rocq-released https://rocq-prover.org/opam/released` if you do not already have it.
 
-To install the dependencies, run `opam install . --deps-only`. The project certainly builds with Coq 8.20.1, so we hard-coded it for reproducibility.
+To install the dependencies, run `opam install . --deps-only`. The project builds with Rocq 9.0.0 or higher.
 
 To build the project use `make`. After that, you can optionally run the tic-tac-toe game with `make run`.
 

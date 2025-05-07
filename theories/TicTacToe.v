@@ -1,12 +1,13 @@
 (* Copyright 2025 Bloomberg Finance L.P. *)
 (* Distributed under the terms of the Apache 2.0 license. *)
 
-Require Import List PeanoNat.
-Require Import Psatz.
-Require Import Coq.Classes.RelationClasses.
-Require Import Coq.Program.Basics.
-Require Import Coq.Program.Equality.
-Require Import Coq.Wellfounded.Inverse_Image.
+Require Import Corelib.Classes.RelationClasses.
+Require Import Corelib.Program.Basics.
+From Stdlib Require Import List.
+From Stdlib Require Import PeanoNat.
+From Stdlib Require Import Psatz.
+From Stdlib Require Import Program.Equality.
+From Stdlib Require Import Wellfounded.Inverse_Image.
 
 Import ListNotations.
 
@@ -14,7 +15,6 @@ Require Import GameTrees.Helpers.
 Require Import GameTrees.Relations.
 Require Import GameTrees.Trees.
 Require Import GameTrees.Eval.
-Require GameTrees.Cotrees.
 
 Inductive player : Type := x | o.
 
@@ -284,6 +284,8 @@ Definition complete_tree : tree game :=
 
 (* True theorem but it takes too long to run! *)
 (*
+Require GameTrees.Cotrees.
+
 Theorem ttt_is_finite : Cotrees.finite_game ttt_next ttt_init.
 Proof.
   exists 10; vm_compute; reflexivity.
@@ -294,11 +296,10 @@ Definition complete_tree' : tree game :=
   Cotrees.tree_of_cotree ttt_is_finite.1 (Cotrees.unfold_cotree ttt_next ttt_init).
 *)
 
-Require Import String.
+From Stdlib Require Import String.
 #[local] Open Scope string_scope.
 
 Require Import SimpleIO.SimpleIO.
-Require Import Coq.Sorting.Mergesort.
 Require Import ExtLib.Core.RelDec.
 Import IO.Notations.
 
@@ -380,9 +381,10 @@ Definition play (t : tree (game * nat)) : IO (tree (game * nat)) :=
 Definition unsafe_main : io_unit :=
   IO.unsafe_run (IO.loop play scored_tree).
 
-Require Import Coq.extraction.ExtrOcamlBasic.
-Require Import Coq.extraction.ExtrOcamlNatInt.
-Require Import Coq.extraction.ExtrOcamlString.
+Require Import Corelib.extraction.ExtrOcamlBasic.
+Require Import Corelib.extraction.ExtrOcamlBasic.
+From Stdlib Require Import extraction.ExtrOcamlString.
+From Stdlib Require Import extraction.ExtrOcamlNatInt.
 
 Module Extraction.
 Extract Inductive sigT => "( * )" [""].
