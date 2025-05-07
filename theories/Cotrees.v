@@ -1,13 +1,13 @@
 (* Copyright 2025 Bloomberg Finance L.P. *)
 (* Distributed under the terms of the Apache 2.0 license. *)
 
-Require Import List.
-Require Import Coq.Classes.Morphisms.
-Require Import Coq.Classes.RelationClasses.
-Require Import Coq.Relations.Relation_Definitions.
-Require Import Coq.Relations.Relation_Operators.
-Require Import Coq.Relations.Operators_Properties.
-Require Import Coq.Program.Equality.
+Require Import Corelib.Classes.Morphisms.
+Require Import Corelib.Classes.RelationClasses.
+Require Import Corelib.Relations.Relation_Definitions.
+From Stdlib Require Import List.
+From Stdlib Require Import Relations.Relation_Operators.
+From Stdlib Require Import Relations.Operators_Properties.
+From Stdlib Require Import Program.Equality.
 
 Require Import GameTrees.Helpers.
 Require Import GameTrees.Trees.

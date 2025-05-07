@@ -1,9 +1,8 @@
 (* Copyright 2025 Bloomberg Finance L.P. *)
 (* Distributed under the terms of the Apache 2.0 license. *)
 
-Require Import List.
-Require Import Coq.Relations.Relation_Definitions.
-Require Import Coq.Relations.Relation_Operators.
+Require Import Corelib.Relations.Relation_Definitions.
+From Stdlib Require Import List.
 
 Import ListNotations.
 

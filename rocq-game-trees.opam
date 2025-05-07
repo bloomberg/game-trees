@@ -1,11 +1,12 @@
 opam-version: "2.0"
 synopsis: "Definitions and functions about game trees in Rocq"
-homepage: "tbd"
+homepage: "https://github.com/bloomberg/game-trees"
 license: "Apache-2.0"
-bug-reports: "tbd/issues"
+bug-reports: "https://github.com/bloomberg/game-trees/issues"
 depends: [
   "ocaml"
-  "coq" {= "8.20.1"}
+  "rocq-prover" {>= "9.0.0"}
+  "coq"
   "coq-ext-lib" {>= "0.13"}
   "coq-simple-io" {>= "1.11.0"}
 ]

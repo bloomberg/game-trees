@@ -1,12 +1,12 @@
 (* Copyright 2025 Bloomberg Finance L.P. *)
 (* Distributed under the terms of the Apache 2.0 license. *)
 
-Require Import List.
-Require Import Coq.Relations.Relation_Definitions.
-Require Import Coq.Relations.Relation_Operators.
-Require Import Coq.Relations.Operators_Properties.
-Require Import Coq.Program.Wf.
-Require Import Coq.Program.Equality.
+Require Import Corelib.Program.Wf.
+Require Import Corelib.Relations.Relation_Definitions.
+From Stdlib Require Import List.
+From Stdlib Require Import Relations.Relation_Operators.
+From Stdlib Require Import Relations.Operators_Properties.
+From Stdlib Require Import Program.Equality.
 
 Require Import GameTrees.Helpers.
 Require Import GameTrees.Relations.
