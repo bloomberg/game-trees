@@ -83,21 +83,8 @@ Fixpoint tree_of_cotree {A : Type} (fuel : nat) (t : cotree A) {struct fuel} : t
     end
   end.
 
-CoFixpoint unfold_cotree {A : Type} (next : A -> list A) (init : A) : cotree A :=
-  conode init (comap (unfold_cotree next) (colist_of_list (next init))).
-
-Definition finite_cotree {A : Type} (ct : cotree A) : Type :=
-  { n : nat | tree_of_cotree n ct = tree_of_cotree (1 + n) ct }.
-
-Theorem finite_cotree_means_tree :
-  forall {A : Type} (ct : cotree A),
-    finite_cotree ct ->
-    { t : tree A | exists (n : nat), tree_of_cotree n ct = t }.
-Proof.
-  intros A ct [n eq].
-  exists (tree_of_cotree n ct).
-  exists n; auto.
-Qed.
+CoFixpoint unfold_cotree {A : Type} (next : A -> colist A) (init : A) : cotree A :=
+  conode init (comap (unfold_cotree next) (next init)).
 
 Inductive In_colist {A : Type} (x : A) : colist A -> Prop :=
 | In_cocons_hd : forall xs, In_colist x (cocons x xs)
@@ -118,6 +105,31 @@ CoInductive CoForall {A : Type} (P : A -> Prop) : colist A -> Prop :=
 
 CoInductive Forall_conodes {A : Type} (P : A -> Prop) : cotree A -> Prop :=
 | Forall_conodes_conode : forall a f, P a -> CoForall (Forall_conodes P) f -> Forall_conodes P (conode a f).
+
+Definition coincl {A : Type} (l1 l2 : colist A) : Prop :=
+  forall (a : A), In_colist a l1 -> In_colist a l2.
+
+Lemma coincl_refl :
+  forall {A : Type} (l : colist A), coincl l l.
+Proof.
+  intros A l a pf; auto.
+Qed.
+
+Lemma coincl_tl :
+  forall {A : Type} (a : A) (l1 l2 : colist A), coincl l1 l2 -> coincl l1 (cocons a l2).
+Proof.
+  intros A a l1 l2 pf a' pf'.
+  constructor.
+  auto.
+Qed.
+
+Lemma coincl_cons_inv :
+  forall {A : Type} (a : A) (l1 l2 : colist A),
+    coincl (cocons a l1) l2 -> In_colist a l2 /\ coincl l1 l2.
+Proof.
+  intros A a l1 l2 pf.
+  split; [| intros a' pf']; apply pf; constructor; auto.
+Qed.
 
 Lemma CoExists_exists :
   forall {A : Type} (P : A -> Prop) (l : colist A),
@@ -773,32 +785,29 @@ Proof.
   constructor; auto.
 Qed.
 
-Definition finite_game {A : Type} (next : A -> list A) (initial : A) : Type :=
-  finite_cotree (unfold_cotree next initial).
-
 Definition path
            {A : Type}
-           (next : forall (a : A), list A) : A -> A -> Prop :=
-  clos_refl_trans A (fun (x y : A) => In y (next x)).
+           (next : forall (a : A), colist A) : A -> A -> Prop :=
+  clos_refl_trans A (fun (x y : A) => In_colist y (next x)).
 
 Definition path_n1
            {A : Type}
-           (next : forall (a : A), list A) : A -> A -> Prop :=
-  @clos_refl_trans_n1 A (fun (x y : A) => In y (next x)).
+           (next : forall (a : A), colist A) : A -> A -> Prop :=
+  @clos_refl_trans_n1 A (fun (x y : A) => In_colist y (next x)).
 
 Definition path_1n
            {A : Type}
-           (next : forall (a : A), list A) : A -> A -> Prop :=
-  @clos_refl_trans_1n A (fun (x y : A) => In y (next x)).
+           (next : forall (a : A), colist A) : A -> A -> Prop :=
+  @clos_refl_trans_1n A (fun (x y : A) => In_colist y (next x)).
 
 Lemma unfold_cotree_unwrap :
   forall
     {A : Type}
-    (next : forall (a : A), list A)
+    (next : forall (a : A), colist A)
     (init : A),
     bisimilar_cotree eq
       (unfold_cotree next init)
-      (conode init (comap (unfold_cotree next) (colist_of_list (next init)))).
+      (conode init (comap (unfold_cotree next) (next init))).
 Proof.
   intros A next init.
   pattern (unfold_cotree next init) at 1.
@@ -809,7 +818,7 @@ Qed.
 Lemma unfold_cotree_sound_aux :
   forall
     {A : Type}
-    (next : A -> list A),
+    (next : A -> colist A),
   forall (init mid : A),
     path next init mid ->
     Forall_conodes (path next init) (unfold_cotree next mid).
@@ -822,19 +831,19 @@ Proof.
   constructor.
   auto.
   destruct (next mid) eqn:eq.
-  { pattern (comap (unfold_cotree next) (colist_of_list [])).
+  { pattern (comap (unfold_cotree next) conil).
     rewrite colist_unfold_eq; simpl.
     constructor.
   }
-  { pattern (comap (unfold_cotree next) (colist_of_list (a :: l))).
+  { pattern (comap (unfold_cotree next) (cocons a c)).
     rewrite colist_unfold_eq; simpl.
     constructor.
     eapply C1.
     eapply rt_trans; [eapply pf | eapply rt_step; rewrite eq; eleft; auto].
-    assert (H : incl l (next mid)).
-    { rewrite eq. eapply incl_tl; eapply incl_refl. }
+    assert (H : coincl c (next mid)).
+    { rewrite eq. eapply coincl_tl; eapply coincl_refl. }
     clear eq.
-    generalize l H; clear l H.
+    generalize c H; clear c H.
     cofix C2.
     intros l pf'.
     destruct l.
@@ -845,9 +854,9 @@ Proof.
       constructor.
       eapply C1.
       eapply rt_trans; [eapply pf | eapply rt_step].
-      destruct (incl_cons_inv pf'); eauto.
+      destruct (coincl_cons_inv _ _ _ pf'); eauto.
       eapply C2.
-      destruct (incl_cons_inv pf'); eauto.
+      destruct (coincl_cons_inv _ _ _ pf'); eauto.
     }
   }
 Qed.
@@ -855,7 +864,7 @@ Qed.
 Theorem unfold_cotree_sound :
   forall
     {A : Type}
-    (next : forall (a : A), list A)
+    (next : forall (a : A), colist A)
     (init : A),
   forall (a : A),
     In_cotree a (unfold_cotree next init) ->
@@ -870,7 +879,7 @@ Qed.
 Theorem unfold_cotree_complete_1n :
   forall
     {A : Type}
-    (next : forall (a : A), list A)
+    (next : forall (a : A), colist A)
     (init : A),
   forall (a : A),
     path_1n next init a ->
@@ -885,14 +894,14 @@ Proof.
   eexists (unfold_cotree next _).
   split.
   { eapply in_comap.
-    rewrite <- In_colist_iff_In_colist_of_list; eauto. }
+    eauto. }
   { rewrite <- unfold_cotree_unwrap in *; eauto. }
 Qed.
 
 Theorem unfold_cotree_complete :
   forall
     {A : Type}
-    (next : forall (a : A), list A)
+    (next : forall (a : A), colist A)
     (init : A),
   forall (a : A),
     path next init a ->
@@ -902,4 +911,20 @@ Proof.
   pose proof (unfold_cotree_complete_1n next init a).
   unfold path, path_1n in *.
   rewrite <- clos_rt_rt1n_iff in *; auto.
+Qed.
+
+Definition finite_cotree {A : Type} (ct : cotree A) : Type :=
+  { n : nat | tree_of_cotree n ct = tree_of_cotree (1 + n) ct }.
+
+Definition finite_game {A : Type} (next : A -> colist A) (initial : A) : Type :=
+  finite_cotree (unfold_cotree next initial).
+
+Theorem finite_cotree_means_tree :
+  forall {A : Type} (ct : cotree A),
+    finite_cotree ct ->
+    { t : tree A | exists (n : nat), tree_of_cotree n ct = t }.
+Proof.
+  intros A ct [n eq].
+  exists (tree_of_cotree n ct).
+  exists n; auto.
 Qed.
