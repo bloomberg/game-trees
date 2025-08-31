@@ -8,6 +8,7 @@ From Stdlib Require Import List.
 From Stdlib Require Import Relations.Relation_Operators.
 From Stdlib Require Import Relations.Operators_Properties.
 From Stdlib Require Import Program.Equality.
+From Stdlib Require Import Lia.
 
 Require Import GameTrees.Helpers.
 Require Import GameTrees.Trees.
@@ -913,11 +914,24 @@ Proof.
   rewrite <- clos_rt_rt1n_iff in *; auto.
 Qed.
 
+Definition finite_colist {A : Type} (cl : colist A) : Type :=
+  { n : nat | list_of_colist n cl = list_of_colist (1 + n) cl }.
+
 Definition finite_cotree {A : Type} (ct : cotree A) : Type :=
   { n : nat | tree_of_cotree n ct = tree_of_cotree (1 + n) ct }.
 
 Definition finite_game {A : Type} (next : A -> colist A) (initial : A) : Type :=
   finite_cotree (unfold_cotree next initial).
+
+Theorem finite_colist_means_list :
+  forall {A : Type} (cl : colist A),
+    finite_colist cl ->
+    { l : list A | exists (n : nat), list_of_colist n cl = l }.
+Proof.
+  intros A cl [n eq].
+  exists (list_of_colist n cl).
+  exists n; auto.
+Qed.
 
 Theorem finite_cotree_means_tree :
   forall {A : Type} (ct : cotree A),
@@ -927,4 +941,107 @@ Proof.
   intros A ct [n eq].
   exists (tree_of_cotree n ct).
   exists n; auto.
+Qed.
+
+Theorem finite_colist_stable :
+  forall {A : Type} (cl : colist A) (n m : nat),
+    list_of_colist n cl = list_of_colist (1 + n) cl ->
+    list_of_colist n cl = list_of_colist (m + n) cl.
+Proof.
+  intros A cl n m H.
+  revert cl m H.
+  induction n as [| n IH]; intros cl m H.
+  - simpl in H.
+    destruct cl, m; simpl in *; auto.
+    discriminate.
+  - destruct cl; simpl in *.
+    + rewrite PeanoNat.Nat.add_succ_r; auto.
+    + inv H.
+      rewrite PeanoNat.Nat.add_succ_r; simpl.
+      f_equal.
+      eapply IH; eauto.
+Qed.
+
+(* equality of maps over the same list gives pointwise equality *)
+Lemma map_eq_Forall_pointwise {A B : Type} (f g : A -> B) (l : list A) :
+  map f l = map g l -> Forall (fun x => f x = g x) l.
+Proof.
+  revert f g.
+  induction l as [|x xs IH]; intros f g H; simpl in H; auto.
+  inv H; auto.
+Qed.
+
+(* if the (S n)-prefix doesn't increase length, it equals the n-prefix *)
+Lemma list_of_colist_succ_eq_if_same_len
+      {A : Type} (f : colist A) (n : nat) :
+  length (list_of_colist (S n) f) = length (list_of_colist n f) ->
+  list_of_colist (S n) f = list_of_colist n f.
+Proof.
+  revert f.
+  induction n as [|n IH]; intros f Hlen.
+  - destruct f; simpl in *; [auto | discriminate].
+  - destruct f; simpl in *; auto.
+    apply PeanoNat.Nat.succ_inj in Hlen.
+    specialize (IH f Hlen).
+    f_equal; auto.
+Qed.
+
+Theorem finite_cotree_stable :
+  forall {A : Type} (ct : cotree A) (n m : nat),
+    tree_of_cotree n ct = tree_of_cotree (1 + n) ct ->
+    tree_of_cotree n ct = tree_of_cotree (m + n) ct.
+Proof.
+  intros A ct n.
+  revert ct.
+  induction n as [| n IH]; intros [a f] m H; simpl in *.
+  - destruct f; simpl in *.
+    + destruct m; auto.
+    + discriminate.
+  - destruct f as [| ch rest]; simpl in *.
+    + rewrite PeanoNat.Nat.add_succ_r; auto.
+    + inv H. rename H1 into Hhd, H2 into Htl.
+
+      (* Show the (S n)-prefix of 'rest' didn't actually grow *)
+      assert (Hlen :
+        length (list_of_colist (S n) rest) = length (list_of_colist n rest)).
+      { apply (f_equal (@length _)) in Htl. now rewrite !length_map in Htl. }
+
+      assert (Hrest_eq :
+        list_of_colist (S n) rest = list_of_colist n rest).
+      { eapply list_of_colist_succ_eq_if_same_len; eauto. }
+
+      (* rewrite inside Htl to use [list_of_colist (S n) rest] so [Hrest_eq] applies *)
+      change (match rest with
+              | conil => []
+              | cocons x xs => x :: list_of_colist n xs
+              end)
+        with (list_of_colist (S n) rest) in Htl.
+
+      (* now both sides of Htl are maps over [list_of_colist n rest] vs [list_of_colist (S n) rest] *)
+      rewrite Hrest_eq in Htl.
+      (* obtain pointwise stabilization for each child in the n-prefix of [rest] *)
+      pose proof (Hfor := map_eq_Forall_pointwise
+                            (tree_of_cotree n) (tree_of_cotree (S n))
+                            (list_of_colist n rest) Htl).
+
+      (* head child stabilizes up to any larger fuel by IH *)
+      assert (Hhd_m : tree_of_cotree n ch = tree_of_cotree (m + n) ch)
+        by (apply IH; auto).
+
+      (* the list of children itself stabilizes for all larger prefixes *)
+      assert (Hrest_stable :
+        list_of_colist n rest = list_of_colist (m + n) rest).
+      { apply finite_colist_stable; auto. }
+
+      (* convert pointwise stabilization into a map equality on the fixed list *)
+      set (L := list_of_colist n rest) in *.
+      assert (Hmap_tail : map (tree_of_cotree n) L = map (tree_of_cotree (m + n)) L).
+      { clear -IH Hfor.
+        revert Hfor; induction L as [|x xs IHxs]; intros HF; simpl; auto.
+        inv HF; subst; simpl. f_equal; auto. }
+
+      rewrite PeanoNat.Nat.add_succ_r; simpl.
+      f_equal.
+      f_equal; auto.
+      rewrite <- Hrest_stable; auto.
 Qed.
