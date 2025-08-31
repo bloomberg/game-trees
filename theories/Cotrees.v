@@ -15,6 +15,7 @@ Require Import GameTrees.Trees.
 
 Import ListNotations.
 
+(* Coinductive counterpart of [list]. *)
 CoInductive colist (A : Type) : Type :=
 | conil : colist A
 | cocons : A -> colist A -> colist A.
@@ -22,6 +23,7 @@ CoInductive colist (A : Type) : Type :=
 Arguments conil {A}.
 Arguments cocons {A} x xs.
 
+(* Coinductive counterpart of [tree]. *)
 CoInductive cotree (A : Type) : Type :=
 | conode : A -> colist (cotree A) -> cotree A.
 
@@ -40,6 +42,7 @@ Definition children {A : Type} (t : cotree A) : colist (cotree A) :=
   | conode _ f => f
   end.
 
+(* The [colist] counterpart of the [map] function. *)
 Definition comap {A B : Type} (f : A -> B) : colist A -> colist B :=
   cofix comap (l : colist A) : colist B :=
     match l with
@@ -47,6 +50,7 @@ Definition comap {A B : Type} (f : A -> B) : colist A -> colist B :=
     | cocons x xs => cocons (f x) (comap xs)
     end.
 
+(* The [cotree] counterpart of the [map_tree] function. *)
 CoFixpoint comap_cotree {A B : Type} (g : A -> B) (t : cotree A) : cotree B :=
   match t with
   | conode a f => conode (g a) (comap (comap_cotree g) f)
@@ -55,6 +59,7 @@ CoFixpoint comap_cotree {A B : Type} (g : A -> B) (t : cotree A) : cotree B :=
 Definition singleton_cotree {A : Type} (a : A) : cotree A := conode a conil.
 Definition singleton_coforest {A : Type} (a : A) : coforest A := cocons (conode a conil) conil.
 
+(* Turn a [list] into a [colist]. *)
 CoFixpoint colist_of_list {A : Type} (l : list A) : colist A :=
   match l with
   | [] => conil
@@ -64,6 +69,7 @@ CoFixpoint colist_of_list {A : Type} (l : list A) : colist A :=
 Definition coforest_of_list {A : Type} (l : list A) : coforest A :=
   comap singleton_cotree (colist_of_list l).
 
+(* Take elements from [colist] and put in a [list], as long as there is some fuel. *)
 Fixpoint list_of_colist {A : Type} (fuel : nat) (l : colist A) {struct fuel} : list A :=
   match fuel with
   | O => nil
@@ -74,6 +80,7 @@ Fixpoint list_of_colist {A : Type} (fuel : nat) (l : colist A) {struct fuel} : l
     end
   end.
 
+(* Take elements from [cotree] and put in a [tree], as long as there is some fuel. *)
 Fixpoint tree_of_cotree {A : Type} (fuel : nat) (t : cotree A) {struct fuel} : tree A :=
   match t with
   | conode a f =>
@@ -84,44 +91,50 @@ Fixpoint tree_of_cotree {A : Type} (fuel : nat) (t : cotree A) {struct fuel} : t
     end
   end.
 
+(* Given an initial game state and the (possibly infinite) "next states" function,
+   build the entire (possibly infinite) game tree.
+   The [cotree] counterpart of the [unfold_tree] function. *)
 CoFixpoint unfold_cotree {A : Type} (next : A -> colist A) (init : A) : cotree A :=
   conode init (comap (unfold_cotree next) (next init)).
 
+(* The [colist] counterpart of the [In] predicate. *)
 Inductive In_colist {A : Type} (x : A) : colist A -> Prop :=
 | In_cocons_hd : forall xs, In_colist x (cocons x xs)
 | In_cocons_tl : forall y xs, In_colist x xs -> In_colist x (cocons y xs).
 
+(* The [colist] counterpart of the [Exists] predicate. *)
 Inductive CoExists {A : Type} (P : A -> Prop) : colist A -> Prop :=
 | CoExists_cocons_hd : forall x l, P x -> CoExists P (cocons x l)
 | CoExists_cocons_tl : forall x l, CoExists P l -> CoExists P (cocons x l).
 
+(* The [cotree] counterpart of the [In_tree] predicate. *)
 Inductive In_cotree {A : Type} (a : A) : cotree A -> Prop :=
 | In_conode : forall f, In_cotree a (conode a f)
 | In_cochildren : forall a' f,
     CoExists (In_cotree a) f -> In_cotree a (conode a' f).
 
+(* The [colist] counterpart of the [Forall] predicate. *)
 CoInductive CoForall {A : Type} (P : A -> Prop) : colist A -> Prop :=
 | CoForall_conil : CoForall P conil
 | CoForall_cocons : forall x l, P x -> CoForall P l -> CoForall P (cocons x l).
 
+(* The [cotree] counterpart of the [Forall_nodes] predicate. *)
 CoInductive Forall_conodes {A : Type} (P : A -> Prop) : cotree A -> Prop :=
 | Forall_conodes_conode : forall a f, P a -> CoForall (Forall_conodes P) f -> Forall_conodes P (conode a f).
 
+(* The [colist] counterpart of the [incl] relation. *)
 Definition coincl {A : Type} (l1 l2 : colist A) : Prop :=
   forall (a : A), In_colist a l1 -> In_colist a l2.
 
 Lemma coincl_refl :
   forall {A : Type} (l : colist A), coincl l l.
-Proof.
-  intros A l a pf; auto.
-Qed.
+Proof. intros A l a pf; auto. Qed.
 
 Lemma coincl_tl :
   forall {A : Type} (a : A) (l1 l2 : colist A), coincl l1 l2 -> coincl l1 (cocons a l2).
 Proof.
   intros A a l1 l2 pf a' pf'.
-  constructor.
-  auto.
+  constructor; auto.
 Qed.
 
 Lemma coincl_cons_inv :
@@ -132,29 +145,29 @@ Proof.
   split; [| intros a' pf']; apply pf; constructor; auto.
 Qed.
 
+(* The [colist] counterpart of [Exists_exists]. *)
 Lemma CoExists_exists :
   forall {A : Type} (P : A -> Prop) (l : colist A),
     CoExists P l <-> (exists x : A, In_colist x l /\ P x).
 Proof.
   intros A P l; split.
-  {
-    intros pf.
+  { intros pf.
     induction pf.
     repeat econstructor; eauto.
     destruct IHpf as [a [H1 H2]].
     exists a.
     split; auto.
-    right; auto.
-  }
-  {
-    intros pf.
+    right; auto. }
+  { intros pf.
     destruct pf as [x [H1 H2]].
     induction H1.
     left; auto.
-    right; auto.
-  }
+    right; auto. }
 Qed.
 
+(* A better induction principle for [In_cotree],
+   since [In_cotree_ind] does not specify that
+   [P] holds for the elements in the subtrees. *)
 Lemma In_cotree_better_ind :
   forall (A : Type) (a : A) (P : cotree A -> Prop),
        (forall (f : coforest A), P (conode a f)) ->
@@ -169,6 +182,7 @@ Proof.
   induction H; [left | right]; intuition.
 Qed.
 
+(* The [colist] counterpart of [Forall_forall]. *)
 Lemma CoForall_forall :
   forall {A : Type} (P : A -> Prop) (l : colist A),
     CoForall P l <-> (forall x : A, In_colist x l -> P x).
@@ -190,6 +204,7 @@ Proof.
     intros x i; eapply pf; right; auto. }
 Qed.
 
+(* A bisimilarity relation on [colist]s, where the elements are related by [R]. *)
 CoInductive bisimilar_colist
             {A : Type}
             (R : relation A)
@@ -244,6 +259,7 @@ Proof.
   eapply C; eauto.
 Qed.
 
+(* A bisimilarity relation on [cotree]s, where the elements are related by [R]. *)
 CoInductive bisimilar_cotree
           {A : Type}
           (R : relation A)
@@ -318,18 +334,28 @@ Proof.
     eapply C1; eauto. }
 Qed.
 
-Definition colist_unfold {A : Type} (l : colist A) :=
+(* Chlipala's [frob] for [colist]s.
+   For the original [frob], see http://adam.chlipala.net/cpdt/html/Cpdt.Coinductive.html
+   An identity function that pattern matches on the [colist] and reconstructs the original.
+   It induces a reduction context that allows guardedness checks to succeed. *)
+Definition colist_unfold {A : Type} (l : colist A) : colist A :=
   match l with conil => conil | cocons x xs => cocons x xs end.
 
+(* Proof that [colist_unfold] indeed acts like the identity function. *)
 Lemma colist_unfold_eq : forall {A : Type} (l : colist A), l = colist_unfold l.
 Proof. destruct l; auto. Qed.
 
-Definition cotree_unfold {A : Type} (t : cotree A) :=
+(* Chlipala's [frob] for [cotree]s.
+   An identity function that pattern matches on the [cotree] and reconstructs the original.
+   It induces a reduction context that allows guardedness checks to succeed. *)
+Definition cotree_unfold {A : Type} (t : cotree A) : cotree A :=
   match t with conode a f => conode a f end.
 
+(* Proof that [colist_unfold] indeed acts like the identity function. *)
 Lemma cotree_unfold_eq : forall {A : Type} (t : cotree A), t = cotree_unfold t.
 Proof. destruct t; auto. Qed.
 
+(* The [colist] counterpart of [Forall_map]. *)
 Lemma CoForall_comap :
   forall {A B : Type} (f : A -> B) (P : B -> Prop) (l : colist A),
   CoForall P (comap f l) <-> CoForall (fun x : A => P (f x)) l.
@@ -364,6 +390,8 @@ Proof.
   }
 Qed.
 
+(* Any [In] proof about a list is equivalent to
+   the [In_colist] proof about the [colist] version of the same list. *)
 Lemma In_colist_iff_In_colist_of_list :
   forall {A : Type} (a : A) (l : list A),
     In a l <-> In_colist a (colist_of_list l).
@@ -390,18 +418,21 @@ Proof.
       right; auto. } }
 Qed.
 
-Lemma CoForall_colist_of_list :
+(* Any [Forall] proof about a list is equivalent to
+   the [CoForall] proof about the [colist] version of the same list. *)
+Lemma Forall_iff_CoForall_colist_of_list :
   forall {A : Type} (P : A -> Prop) (l : list A),
-    CoForall P (colist_of_list l) <-> Forall P l.
+    Forall P l <-> CoForall P (colist_of_list l).
 Proof.
   intros A P l.
   rewrite CoForall_forall.
   rewrite Forall_forall.
   split; intros x pf pf'.
-  rewrite -> In_colist_iff_In_colist_of_list in pf'; auto.
   rewrite <- In_colist_iff_In_colist_of_list in pf'; auto.
+  rewrite -> In_colist_iff_In_colist_of_list in pf'; auto.
 Qed.
 
+(* The [colist] counterpart of [in_map]. *)
 Lemma in_comap :
   forall {A B : Type} (f : A -> B) (l : colist A) (x : A),
     In_colist x l -> In_colist (f x) (comap f l).
@@ -416,7 +447,8 @@ Proof.
   right; auto.
 Qed.
 
-Lemma comap_fusion :
+(* The [colist] counterpart of [map_map]. *)
+Lemma comap_comap :
   forall {A B C : Type}
          (R : relation C)
         `(r : Reflexive C R)
@@ -443,13 +475,6 @@ Proof.
   }
 Qed.
 
-CoInductive Forall_subcotrees {A : Type} (P : cotree A -> Prop) : cotree A -> Prop :=
-| Forall_subcotrees_conode : forall a f, P (conode a f) -> CoForall (Forall_subcotrees P) f -> Forall_subcotrees P (conode a f).
-
-Inductive Exists_subcotree {A : Type} (P : cotree A -> Prop) : cotree A -> Prop :=
-| Exists_subcotree_here : forall a f, P (conode a f) -> Exists_subcotree P (conode a f)
-| Exists_subcotree_there : forall a f, CoExists (Exists_subcotree P) f -> Exists_subcotree P (conode a f).
-
 Add Parametric Relation
   (A : Type) :
   A (@eq A)
@@ -475,14 +500,20 @@ Add Parametric Relation
   symmetry proved by (@bisimilar_cotree_Symmetric A R s)
   transitivity proved by (@bisimilar_cotree_Transitive A R t) as cotree_setoid.
 
-Lemma CoExists_proj1 :
+(* If there is an element in a [colist] satisfying properties [P] and [Q],
+   there is an element in that [colist] satisfying [P] and
+   there is an element in that [colist] satisfying [Q]. *)
+Lemma CoExists_proj :
   forall {A : Type} (P Q : A -> Prop) (l : colist A),
-    CoExists (fun a => P a /\ Q a) l -> CoExists P l.
+    CoExists (fun a => P a /\ Q a) l -> CoExists P l /\ CoExists Q l.
 Proof.
   intros A P Q l pf.
-  induction pf; [left | right]; intuition.
+  induction pf.
+  split; left; intuition.
+  split; right; intuition.
 Qed.
 
+(* The [cotree] counterpart of [Forall_nodes_In_tree]. *)
 Lemma Forall_conodes_In_cotree :
   forall {A : Type} (P : A -> Prop) (t : cotree A),
     Forall_conodes P t <->
@@ -511,7 +542,7 @@ Proof.
           inv pf1.
           inv pf2; intuition.
           eapply H.
-          eapply CoExists_proj1.
+          eapply proj1, CoExists_proj.
           eapply pf. } } } }
   { generalize t; clear t.
     cofix C1.
@@ -535,6 +566,8 @@ Proof.
     right; right; auto. }
 Qed.
 
+(* If two [cotree]s are bisimilar where the elements are related by [eq],
+   then any element [In_cotree] of one is [In_cotree] of the other. *)
 Fixpoint In_cotree_morph_aux
          {A : Type}
          (a : A)
@@ -642,6 +675,8 @@ Proof.
     eapply C1; eauto. }
 Qed.
 
+(* If every element [x] that appears somewhere in the [coforest] satisfies [P],
+   then the whole [coforest] satisfies the property that all its conodes satisfy [P]. *)
 Lemma In_coforest_CoForall_Forall_conodes :
   forall {A : Type} (P : A -> Prop) (f : coforest A),
     (forall (x : A), CoExists (In_cotree x) f -> P x) ->
@@ -663,7 +698,7 @@ Proof.
   right; auto.
 Qed.
 
-
+(* The [colist] counterpart of [Forall_mp]. *)
 Lemma CoForall_mp :
   forall {A : Type} (P Q : A -> Prop) (l : colist A),
     CoForall (fun a => P a -> Q a) l ->
@@ -680,6 +715,7 @@ Proof.
   constructor; auto.
 Qed.
 
+(* The [colist] counterpart of [Forall_and]. *)
 Lemma CoForall_and :
   forall {A : Type} (P Q : A -> Prop) (l : colist A),
     CoForall (fun a => P a) l ->
@@ -696,34 +732,21 @@ Proof.
   constructor; auto.
 Qed.
 
-Lemma CoForall_and_inv1 :
+(* The [colist] counterpart of [Forall_and_inv]. *)
+Lemma CoForall_and_inv :
   forall {A : Type} (P Q : A -> Prop) (l : colist A),
     CoForall (fun a => P a /\ Q a) l ->
-    CoForall (fun a => P a) l.
+    CoForall (fun a => P a) l /\ CoForall (fun a => P a) l.
 Proof.
   intros A P Q.
-  cofix C.
-  intros l pf.
-  destruct l.
-  constructor.
-  inv pf.
-  constructor; intuition.
+  split; revert l H; cofix C;
+  intros l pf;
+  destruct l;
+  constructor;
+  inv pf; intuition.
 Qed.
 
-Lemma CoForall_and_inv2 :
-  forall {A : Type} (P Q : A -> Prop) (l : colist A),
-    CoForall (fun a => P a /\ Q a) l ->
-    CoForall (fun a => Q a) l.
-Proof.
-  intros A P Q.
-  cofix C.
-  intros l pf.
-  destruct l.
-  constructor.
-  inv pf.
-  constructor; intuition.
-Qed.
-
+(* The [colist] counterpart of [Forall_impl]. *)
 Lemma CoForall_impl :
   forall {A : Type} (P Q : A -> Prop),
     (forall a, P a -> Q a) ->
@@ -740,6 +763,8 @@ Proof.
   constructor; auto.
 Qed.
 
+(* If whenever an element [a] is in the colist, [P a] implies [Q a],
+   then any [colist] that satisfies [P] everywhere also satisfies [Q] everywhere. *)
 Lemma CoForall_impl_In :
   forall {A : Type} (P Q : A -> Prop) (l : colist A),
     (forall a, In_colist a l -> P a -> Q a) ->
@@ -763,6 +788,8 @@ Proof.
   eright; eauto.
 Qed.
 
+(* If [P a] always implies [Q a],
+   then any [cotree] whose nodes all satisfy [P] also has all nodes satisfying [Q]. *)
 Lemma Forall_conodes_impl :
   forall {A : Type} (P Q : A -> Prop),
     (forall a, P a -> Q a) ->
@@ -786,21 +813,26 @@ Proof.
   constructor; auto.
 Qed.
 
-Definition path
+(* There is a sequence of steps from x to y in zero or more steps,
+   where a one-step edge is "y appears in [next] x". *)
+Definition reachable
            {A : Type}
            (next : forall (a : A), colist A) : A -> A -> Prop :=
   clos_refl_trans A (fun (x y : A) => In_colist y (next x)).
 
-Definition path_n1
+(* Same as [reachable], but the transitive closure is right-stepping. *)
+Definition reachable_n1
            {A : Type}
            (next : forall (a : A), colist A) : A -> A -> Prop :=
   @clos_refl_trans_n1 A (fun (x y : A) => In_colist y (next x)).
 
-Definition path_1n
+(* Same as [reachable], but the transitive closure is left-stepping. *)
+Definition reachable_1n
            {A : Type}
            (next : forall (a : A), colist A) : A -> A -> Prop :=
   @clos_refl_trans_1n A (fun (x y : A) => In_colist y (next x)).
 
+(* An explicit unfolding of a call to [unfold_cotree] is bisimilar to the original. *)
 Lemma unfold_cotree_unwrap :
   forall
     {A : Type}
@@ -816,13 +848,15 @@ Proof.
   reflexivity.
 Qed.
 
+(* If [mid] is [reachable] from [init],
+   then every node produced by [unfold_cotree next mid] is [reachable] from [mid]. *)
 Lemma unfold_cotree_sound_aux :
   forall
     {A : Type}
     (next : A -> colist A),
   forall (init mid : A),
-    path next init mid ->
-    Forall_conodes (path next init) (unfold_cotree next mid).
+    reachable next init mid ->
+    Forall_conodes (reachable next init) (unfold_cotree next mid).
 Proof.
   intros A next.
   cofix C1.
@@ -862,6 +896,8 @@ Proof.
   }
 Qed.
 
+(* If a state is the unfolded game tree,
+   then that state must be [reachable] in a game from the initial state. *)
 Theorem unfold_cotree_sound :
   forall
     {A : Type}
@@ -869,7 +905,7 @@ Theorem unfold_cotree_sound :
     (init : A),
   forall (a : A),
     In_cotree a (unfold_cotree next init) ->
-    path next init a.
+    reachable next init a.
 Proof.
   intros A next init.
   rewrite <- Forall_conodes_In_cotree.
@@ -877,13 +913,15 @@ Proof.
   eapply rt_refl.
 Qed.
 
+(* Any game state left-steppingly reachable from the initial state
+   must be in the unfolded game tree. *)
 Theorem unfold_cotree_complete_1n :
   forall
     {A : Type}
     (next : forall (a : A), colist A)
     (init : A),
   forall (a : A),
-    path_1n next init a ->
+    reachable_1n next init a ->
     In_cotree a (unfold_cotree next init).
 Proof.
   intros A next init a ch.
@@ -899,31 +937,39 @@ Proof.
   { rewrite <- unfold_cotree_unwrap in *; eauto. }
 Qed.
 
+(* Any game state [reachable] from the initial state
+   must be in the unfolded game tree. *)
 Theorem unfold_cotree_complete :
   forall
     {A : Type}
     (next : forall (a : A), colist A)
     (init : A),
   forall (a : A),
-    path next init a ->
+    reachable next init a ->
     In_cotree a (unfold_cotree next init).
 Proof.
   intros A next init a.
   pose proof (unfold_cotree_complete_1n next init a).
-  unfold path, path_1n in *.
+  unfold reachable, reachable_1n in *.
   rewrite <- clos_rt_rt1n_iff in *; auto.
 Qed.
 
+(* A [colist] is finite if there is a number [n] at which
+   taking [n] or [1+n] elements from the [colist] results in the same [list]. *)
 Definition finite_colist {A : Type} (cl : colist A) : Type :=
   { n : nat | list_of_colist n cl = list_of_colist (1 + n) cl }.
 
+(* A [cotree] is finite if there is a number [n] at which
+   taking [n] or [1+n] elements from the [cotree] results in the same [tree]. *)
 Definition finite_cotree {A : Type} (ct : cotree A) : Type :=
   { n : nat | tree_of_cotree n ct = tree_of_cotree (1 + n) ct }.
 
+(* A finite game is one whose unfolded game tree is finite. *)
 Definition finite_game {A : Type} (next : A -> colist A) (initial : A) : Type :=
   finite_cotree (unfold_cotree next initial).
 
-Theorem finite_colist_means_list :
+(* A function to extract the saturated [list] from the [colist] finiteness proof. *)
+Definition finite_colist_means_list :
   forall {A : Type} (cl : colist A),
     finite_colist cl ->
     { l : list A | exists (n : nat), list_of_colist n cl = l }.
@@ -931,9 +977,10 @@ Proof.
   intros A cl [n eq].
   exists (list_of_colist n cl).
   exists n; auto.
-Qed.
+Defined.
 
-Theorem finite_cotree_means_tree :
+(* A function to extract the saturated [tree] from the [cotree] finiteness proof. *)
+Definition finite_cotree_means_tree :
   forall {A : Type} (ct : cotree A),
     finite_cotree ct ->
     { t : tree A | exists (n : nat), tree_of_cotree n ct = t }.
@@ -941,8 +988,12 @@ Proof.
   intros A ct [n eq].
   exists (tree_of_cotree n ct).
   exists n; auto.
-Qed.
+Defined.
 
+(* We define finiteness of [colist]s by saturation of
+   [list_of_colist] at a particular [fuel] argument.
+   Here we make sure that this is indeed saturation,
+   and adding even more [fuel] does not bring more elements. *)
 Theorem finite_colist_stable :
   forall {A : Type} (cl : colist A) (n m : nat),
     list_of_colist n cl = list_of_colist (1 + n) cl ->
@@ -962,7 +1013,7 @@ Proof.
       eapply IH; eauto.
 Qed.
 
-(* equality of maps over the same list gives pointwise equality *)
+(* Equality of maps over the same list gives pointwise equality. *)
 Lemma map_eq_Forall_pointwise {A B : Type} (f g : A -> B) (l : list A) :
   map f l = map g l -> Forall (fun x => f x = g x) l.
 Proof.
@@ -971,7 +1022,7 @@ Proof.
   inv H; auto.
 Qed.
 
-(* if the (S n)-prefix doesn't increase length, it equals the n-prefix *)
+(* If the (S n)-prefix doesn't increase length, it equals the n-prefix. *)
 Lemma list_of_colist_succ_eq_if_same_len
       {A : Type} (f : colist A) (n : nat) :
   length (list_of_colist (S n) f) = length (list_of_colist n f) ->
@@ -986,6 +1037,10 @@ Proof.
     f_equal; auto.
 Qed.
 
+(* We define finiteness of [cotree]s by saturation of
+   [tree_of_cotree] at a particular [fuel] argument.
+   Here we make sure that this is indeed saturation,
+   and adding even more [fuel] does not bring more elements. *)
 Theorem finite_cotree_stable :
   forall {A : Type} (ct : cotree A) (n m : nat),
     tree_of_cotree n ct = tree_of_cotree (1 + n) ct ->

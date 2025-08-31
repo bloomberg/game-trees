@@ -13,6 +13,7 @@ Require Import GameTrees.Relations.
 
 Import ListNotations.
 
+(* A rose tree. *)
 Inductive tree (A : Type) : Type :=
 | node : A -> list (tree A) -> tree A.
 
@@ -53,7 +54,7 @@ Definition map_forest {A B : Type} (g : A -> B) (f : forest A) : forest B :=
   map (map_tree g) f.
 
 Definition singleton_tree {A : Type} (a : A) : tree A := node a [].
-Definition singleton_forest {A : Type} (a : A) : forest A := (node a []) :: [].
+Definition singleton_forest {A : Type} (a : A) : forest A := [node a []].
 
 Definition forest_of_list {A : Type} (l : list A) : forest A :=
   map singleton_tree l.
@@ -80,6 +81,9 @@ Fixpoint leaves {A : Type} (t : tree A) : list A :=
   | node _ f => concat (map leaves f)
   end.
 
+(* A [tree] is monotonic w.r.t. [R] if each node respects an incoming bound:
+   [None] = no constraint; [Some b] requires the node label [a] to satisfy [R a b].
+   The children are checked with bound [Some a]. *)
 Inductive monotonic_tree {A : Type} (R : relation A)
         : forall (bound : option A), tree A -> Prop :=
 | monotonic_node_unbounded :
@@ -92,11 +96,14 @@ Inductive monotonic_tree {A : Type} (R : relation A)
       Forall (monotonic_tree R (Some a)) f ->
       monotonic_tree R (Some b) (node a f).
 
+(* A forest is monotonic when every tree in it is monotonic under the same bound. *)
 Definition monotonic_forest
           {A : Type} (R : relation A)
           (bound : option A) (f : forest A) : Prop :=
   Forall (monotonic_tree R bound) f.
 
+(* A better induction principle for [tree],
+   since [tree_ind] does not specify that [P] holds for the subtrees. *)
 Fixpoint tree_forall_ind
     (A : Type) (P : tree A -> Prop)
     (tpf : forall (a : A) (f : forest A), Forall P f -> P (node a f))
@@ -108,6 +115,8 @@ Fixpoint tree_forall_ind
            (fun x xs IHxs => Forall_cons x (tree_forall_ind A P tpf x) IHxs) f)
   end.
 
+(* Mapping node labels through a [monotone] function [g] preserves monotonicity:
+   an [R1]-monotone [tree] becomes [R2]-monotone, under the mapped [bound]. *)
 Lemma map_tree_monotonic :
   forall {A B : Type}
          {R1 : relation A} {R2 : B -> B -> Prop}
@@ -176,6 +185,7 @@ Proof.
   repeat (constructor; auto).
 Qed.
 
+(* A predicate on [tree]s, under which all nodes in a [tree] satisfy [P]. *)
 Inductive Forall_nodes {A : Type} (P : A -> Prop) : tree A -> Prop :=
 | Forall_nodes_node : forall a f, P a -> Forall (Forall_nodes P) f -> Forall_nodes P (node a f).
 
@@ -249,6 +259,8 @@ Proof.
   inversion H2; subst; auto.
 Qed.
 
+(* A predicate on [tree]s, under which a particular node label [a] occurs in the [tree].
+   Can be compared to [In] for [list]s. *)
 Inductive In_tree {A : Type} (a : A) : tree A -> Prop :=
 | In_this : forall f, In_tree a (node a f)
 | In_that : forall a' f, Exists (In_tree a) f -> In_tree a (node a' f).
@@ -256,6 +268,7 @@ Inductive In_tree {A : Type} (a : A) : tree A -> Prop :=
 Definition In_forest {A : Type} (a : A) (f : forest A) : Prop :=
   Exists (fun t => In_tree a t) f.
 
+(* The [Forall_nodes] and [In_tree] counterpart of [Forall_forall]. *)
 Lemma Forall_nodes_In_tree :
   forall {A : Type} (P : A -> Prop) (t : tree A),
     Forall_nodes P t <-> (forall (x : A), In_tree x t -> P x).
@@ -291,25 +304,40 @@ Proof.
       right; auto. } }
 Qed.
 
+(* [P] holds at the current node and recursively for every sub[tree];
+   equivalently, [P] holds at every node of the tree.
+   Can be compared to AG P in CTL. *)
 Inductive Forall_subtrees {A : Type} (P : tree A -> Prop) : tree A -> Prop :=
 | Forall_subtrees_node : forall a f, P (node a f) -> Forall (Forall_subtrees P) f -> Forall_subtrees P (node a f).
 
+(* Either [P] holds here or in some descendant;
+   i.e., there exists a node along some branch where [P] holds.
+   Can be compared to EF P in CTL. *)
 Inductive Exists_subtree {A : Type} (P : tree A -> Prop) : tree A -> Prop :=
 | Exists_subtree_here : forall a f, P (node a f) -> Exists_subtree P (node a f)
 | Exists_subtree_there : forall a f, Exists (Exists_subtree P) f -> Exists_subtree P (node a f).
 
+(* Either [P] holds here or all children continue to satisfy it;
+   i.e., along every branch, [P] eventually holds.
+   Can be compared to AF P in CTL. *)
 Inductive Exists_all_paths {A : Type} (P : tree A -> Prop) : tree A -> Prop :=
 | Exists_all_paths_here : forall a f, P (node a f) -> Exists_all_paths P (node a f)
 | Exists_all_paths_there : forall a f, Forall (Exists_all_paths P) f -> Exists_all_paths P (node a f).
 
+(* On every path, nodes satisfy [P1] up to the first node where [P2] holds (possibly here).
+   Can be compared to A[P1 U P2] in CTL. *)
 Inductive AllUntil {A : Type} (P1 P2 : tree A -> Prop) : tree A -> Prop :=
 | AllUntil_here : forall a f, P2 (node a f) -> AllUntil P1 P2 (node a f)
 | AllUntil_there : forall a f, P1 (node a f) -> Forall (AllUntil P1 P2) f -> AllUntil P1 P2 (node a f).
 
+(* There exists a path where nodes satisfy [P1] until a node where [P2] holds (possibly here).
+   Can be compared to E[P1 U P2] in CTL. *)
 Inductive ExistsUntil {A : Type} (P1 P2 : tree A -> Prop) : tree A -> Prop :=
 | ExistsUntil_here : forall a f, P2 (node a f) -> ExistsUntil P1 P2 (node a f)
 | ExistsUntil_there : forall a f, P1 (node a f) -> Exists (ExistsUntil P1 P2) f -> ExistsUntil P1 P2 (node a f).
 
+(* Unfolding of a tree with an explicit [Acc] argument.
+   This is the auxiliary function to [unfold_tree]. *)
 Fixpoint unfold_tree_aux
     {A : Type}
     (R : relation A)
@@ -323,6 +351,10 @@ Fixpoint unfold_tree_aux
                    (distribute (fun a => R a init) (next init)))
   end.
 
+(* The entry point of unfolding of a tree.
+   This function takes a well-founded relation,
+   and calls the well-foundedness proof to generate an [Acc]
+   to call the auxiliary function with. *)
 Definition unfold_tree
     {A : Type}
     (R : relation A)
@@ -332,6 +364,8 @@ Definition unfold_tree
   : tree A :=
   unfold_tree_aux R next init (wellfounded init).
 
+(* If [P] holds at [init] and is preserved from any [a] to all its [R]-smaller successors,
+   then every node in [unfold_tree_aux R next init acc] satisfies [P]. *)
 Fixpoint Forall_unfold_tree_aux
     {A : Type}
     (R : relation A)
@@ -356,6 +390,8 @@ Proof.
   auto.
 Qed.
 
+(* If [P] holds at [init] and is preserved from any [a] to all its [R]-smaller successors,
+   then every node in [unfold_tree R next init] satisfies [P]. *)
 Lemma Forall_unfold_tree :
   forall
     {A : Type}
@@ -372,6 +408,7 @@ Proof.
   eapply Forall_unfold_tree_aux; auto.
 Qed.
 
+(* The result of [unfold_tree_aux] is independent of the [Acc] argument. *)
 Fixpoint unfold_tree_aux_same
     {A : Type}
     (R : relation A)
@@ -390,18 +427,22 @@ Proof.
   eapply unfold_tree_aux_same.
 Qed.
 
-Definition path
+(* There is a sequence of steps from x to y in zero or more steps,
+   where a one-step edge is "y appears in [next] x". *)
+Definition reachable
            {A : Type} {R : relation A}
            (next : forall (a : A), {l : list A | Forall (fun x => R x a) l })
            : A -> A -> Prop :=
   clos_refl_trans _ (fun (x y : A) => In y (next x).1).
 
-Definition path_1n
+(* Same as [reachable], but the transitive closure is left-stepping. *)
+Definition reachable_1n
            {A : Type} {R : relation A}
            (next : forall (a : A), {l : list A | Forall (fun x => R x a) l })
            : A -> A -> Prop :=
   clos_refl_trans_1n _ (fun (x y : A) => In y (next x).1).
 
+(* The soundness proof for [unfold_tree_aux]. *)
 Fixpoint unfold_tree_aux_sound
     {A : Type}
     (R : relation A)
@@ -411,7 +452,7 @@ Fixpoint unfold_tree_aux_sound
     (a : A)
     (i : In_tree a (unfold_tree_aux R next init acc))
     {struct acc} :
-    path next init a.
+    reachable next init a.
 Proof.
   generalize a i.
   rewrite <- Forall_nodes_In_tree.
@@ -429,6 +470,8 @@ Proof.
   eapply (unfold_tree_aux_sound A R next x _ y i''').
 Qed.
 
+(* If a state is the unfolded game tree,
+   then that state must be [reachable] in a game from the initial state. *)
 Theorem unfold_tree_sound :
   forall
     {A : Type}
@@ -438,12 +481,13 @@ Theorem unfold_tree_sound :
     (init : A),
   forall (a : A),
     In_tree a (unfold_tree R next init) ->
-    path next init a.
+    reachable next init a.
 Proof.
   intros A R WF next init a i.
   eapply unfold_tree_aux_sound; eauto.
 Qed.
 
+(* An explicit unfolding of a call to [unfold_tree] is equal to the original. *)
 Lemma unfold_tree_unwrap :
   forall
     {A : Type}
@@ -470,6 +514,8 @@ Proof.
   Transparent unfold_tree_aux.
 Qed.
 
+(* Any game state left-steppingly [reachable] from the initial state
+   must be in the unfolded game tree. *)
 Lemma unfold_tree_complete_1n :
   forall
     {A : Type}
@@ -478,7 +524,7 @@ Lemma unfold_tree_complete_1n :
     (next : forall (a : A), {l : list A | Forall (fun x => R x a) l })
     (init : A),
   forall (a : A),
-    path_1n next init a ->
+    reachable_1n next init a ->
     In_tree a (unfold_tree R next init).
 Proof.
   intros A R WF next init a ch.
@@ -493,6 +539,8 @@ Proof.
   eapply in_map; eauto.
 Qed.
 
+(* Any game state [reachable] from the initial state
+   must be in the unfolded game tree. *)
 Theorem unfold_tree_complete :
   forall
     {A : Type}
@@ -501,11 +549,11 @@ Theorem unfold_tree_complete :
     (next : forall (a : A), {l : list A | Forall (fun x => R x a) l })
     (init : A),
   forall (a : A),
-    path next init a ->
+    reachable next init a ->
     In_tree a (unfold_tree R next init).
 Proof.
   intros A R WF next init a.
   pose proof (unfold_tree_complete_1n R next init a).
-  unfold path, path_1n in *.
+  unfold reachable, reachable_1n in *.
   rewrite clos_rt_rt1n_iff; auto.
 Qed.
