@@ -165,10 +165,10 @@ Proof.
     right; auto. }
 Qed.
 
-(* A better induction principle for [In_cotree],
+(* A stronger induction principle for [In_cotree],
    since [In_cotree_ind] does not specify that
    [P] holds for the elements in the subtrees. *)
-Lemma In_cotree_better_ind :
+Lemma In_cotree_ind_strong :
   forall (A : Type) (a : A) (P : cotree A -> Prop),
        (forall (f : coforest A), P (conode a f)) ->
        (forall (a' : A) (f : coforest A), CoExists (fun t => In_cotree a t /\ P t) f -> P (conode a' f)) ->
@@ -372,8 +372,7 @@ Proof.
     constructor.
     inv pf; auto.
     eapply C.
-    inv pf; auto.
-  }
+    inv pf; auto. }
   { generalize l pf; clear l pf.
     cofix C.
     intros l pf.
@@ -386,8 +385,7 @@ Proof.
     constructor.
     inv pf; auto.
     eapply C.
-    inv pf; auto.
-  }
+    inv pf; auto. }
 Qed.
 
 (* Any [In] proof about a list is equivalent to
@@ -522,7 +520,7 @@ Proof.
   intros A P t; split.
   { intros fa x i.
     generalize fa i.
-    refine (In_cotree_better_ind A x
+    refine (In_cotree_ind_strong A x
               (fun t => Forall_conodes P t -> In_cotree x t -> P x)
               _ _ t i);
       clear fa i.
@@ -736,7 +734,7 @@ Qed.
 Lemma CoForall_and_inv :
   forall {A : Type} (P Q : A -> Prop) (l : colist A),
     CoForall (fun a => P a /\ Q a) l ->
-    CoForall (fun a => P a) l /\ CoForall (fun a => P a) l.
+    CoForall (fun a => P a) l /\ CoForall (fun a => Q a) l.
 Proof.
   intros A P Q.
   split; revert l H; cofix C;
@@ -868,8 +866,7 @@ Proof.
   destruct (next mid) eqn:eq.
   { pattern (comap (unfold_cotree next) conil).
     rewrite colist_unfold_eq; simpl.
-    constructor.
-  }
+    constructor. }
   { pattern (comap (unfold_cotree next) (cocons a c)).
     rewrite colist_unfold_eq; simpl.
     constructor.
@@ -883,16 +880,14 @@ Proof.
     intros l pf'.
     destruct l.
     { rewrite colist_unfold_eq; simpl.
-      constructor.
-    }
+      constructor. }
     { rewrite colist_unfold_eq; simpl.
       constructor.
       eapply C1.
       eapply rt_trans; [eapply pf | eapply rt_step].
       destruct (coincl_cons_inv _ _ _ pf'); eauto.
       eapply C2.
-      destruct (coincl_cons_inv _ _ _ pf'); eauto.
-    }
+      destruct (coincl_cons_inv _ _ _ pf'); eauto. }
   }
 Qed.
 
@@ -969,7 +964,7 @@ Definition finite_game {A : Type} (next : A -> colist A) (initial : A) : Type :=
   finite_cotree (unfold_cotree next initial).
 
 (* A function to extract the saturated [list] from the [colist] finiteness proof. *)
-Definition finite_colist_means_list :
+Definition finite_colist_witness_list :
   forall {A : Type} (cl : colist A),
     finite_colist cl ->
     { l : list A | exists (n : nat), list_of_colist n cl = l }.
@@ -980,7 +975,7 @@ Proof.
 Defined.
 
 (* A function to extract the saturated [tree] from the [cotree] finiteness proof. *)
-Definition finite_cotree_means_tree :
+Definition finite_cotree_witness_tree :
   forall {A : Type} (ct : cotree A),
     finite_cotree ct ->
     { t : tree A | exists (n : nat), tree_of_cotree n ct = t }.
