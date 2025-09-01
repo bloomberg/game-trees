@@ -179,7 +179,7 @@ Proof.
   inv i.
   eapply tpf1.
   eapply tpf2; eauto.
-  induction H; [left | right]; intuition.
+  induction H; [left | right]; intuition auto.
 Qed.
 
 (* The [colist] counterpart of [Forall_forall]. *)
@@ -509,8 +509,8 @@ Lemma CoExists_proj :
 Proof.
   intros A P Q l pf.
   induction pf.
-  split; left; intuition.
-  split; right; intuition.
+  split; left; intuition auto.
+  split; right; intuition auto.
 Qed.
 
 (* The [cotree] counterpart of [Forall_nodes_In_tree]. *)
@@ -537,10 +537,10 @@ Proof.
         induction pf.
         { intros pf1 pf2.
           inv pf1.
-          inv pf2; intuition. }
+          inv pf2; intuition auto. }
         { intros pf1 pf2.
           inv pf1.
-          inv pf2; intuition.
+          inv pf2; intuition auto.
           eapply H.
           eapply proj1, CoExists_proj.
           eapply pf. } } } }
@@ -660,7 +660,7 @@ Proof.
     constructor.
     unfold "==>", Proper in PR.
     specialize (PR a1 a2).
-    intuition.
+    intuition auto.
     eapply C1; eauto. }
   { generalize l1 l2 pf; clear l1 l2 pf.
     cofix C1.
@@ -671,7 +671,7 @@ Proof.
     constructor.
     unfold "==>", Proper in PR.
     specialize (PR a1 a2).
-    intuition.
+    intuition auto.
     eapply C1; eauto. }
 Qed.
 
@@ -743,7 +743,7 @@ Proof.
   intros l pf;
   destruct l;
   constructor;
-  inv pf; intuition.
+  inv pf; intuition auto.
 Qed.
 
 (* The [colist] counterpart of [Forall_impl]. *)

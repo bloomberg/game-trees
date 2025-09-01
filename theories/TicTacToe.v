@@ -210,14 +210,14 @@ Definition all_games : list game :=
 Lemma all_cells_are_in_all_cells : forall (c : option player), In c all_cells.
 Proof.
   unfold all_cells.
-  destruct c; intuition.
-  destruct p; intuition.
+  destruct c; intuition (auto with *).
+  destruct p; intuition (auto with *).
 Qed.
 
 Lemma all_turns_are_in_all_turns : forall (p : player), In p all_turns.
 Proof.
   unfold all_turns.
-  destruct p; intuition.
+  destruct p; intuition (auto with *).
 Qed.
 
 (* Includes invalid games too, but we don't care at the moment *)
@@ -236,6 +236,8 @@ Proof.
   all: eapply all_cells_are_in_all_cells.
 Qed.
 
+(* The next moves function,
+   where the next moves are guaranteed by [game_step] to be legal moves. *)
 Lemma ttt_next_intrinsic :
   forall g1 : game,
     {l : list game | Forall (fun g2 : game => (flip game_step) g2 g1) l}.
@@ -252,6 +254,7 @@ Proof.
   constructor; auto.
 Defined.
 
+(* A relation on game states, where [g1] is a later board in the game then [g2]. *)
 Definition later (g1 g2 : game) : Prop :=
   empty_cells g1 < empty_cells g2.
 

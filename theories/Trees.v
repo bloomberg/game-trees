@@ -254,7 +254,7 @@ Proof.
   simpl.
   repeat constructor.
   repeat (constructor; auto).
-  all: simpl in *; inversion H; subst; simpl in *; intuition.
+  all: simpl in *; inversion H; subst; simpl in *; intuition auto.
   unfold singleton_tree in *.
   inversion H2; subst; auto.
 Qed.
@@ -384,7 +384,7 @@ Proof.
   eapply Forall_forall.
   intros [x pf'] i.
   eapply Forall_unfold_tree_aux; eauto.
-  destruct (In_distribute _ _ x pf' i).
+  pose proof (In_distribute _ _ x pf' i).
   specialize (pf init p).
   rewrite Forall_forall in pf.
   auto.
@@ -462,7 +462,7 @@ Proof.
   eapply Forall_map.
   eapply Forall_forall.
   intros [x pf] i'.
-  destruct (In_distribute _ _ x pf i') as [i'' pf']; auto.
+  pose proof (i'' := In_distribute _ _ x pf i'); auto.
   rewrite Forall_nodes_In_tree.
   intros y i'''.
   eapply rt_trans.

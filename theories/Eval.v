@@ -17,12 +17,16 @@ Require Import GameTrees.Trees.
 Import ListNotations.
 Import SigTNotations.
 
+(* If R behaves like a "less than" relation,
+   this function gets you the max of two elements. *)
 Definition max2
            {A : Type}
            (R : relation A) `{RelDec A R}
            (x y : A) : A :=
   if rel_dec x y then y else x.
 
+(* If R behaves like a "less than" relation,
+   this function gets you the max in a list, or [None] if the list is empty. *)
 Definition max
            {A : Type}
            (R : relation A) `{RelDec A R}
@@ -32,17 +36,22 @@ Definition max
                          | Some y => Some (max2 R x y)
                          end) None l.
 
+(* An infinite stream of how the player turns go,
+   and a decidable "less than" relation on how the score of each is evaluated. *)
 Definition players (S : Type) :=
   Stream {R : relation S & RelDec R}.
 
+(* The [Stream] counterpart of [CoForall]. *)
 CoInductive Each {A : Type} (P : A -> Prop) : Stream A -> Prop :=
 | EachCons : forall x l, P x -> Each P l -> Each P (Cons x l).
 
+(* The same player taking every turn: P1, P1, P1, ... *)
 CoFixpoint one_player
            {S : Type}
            (R : relation S) `{D : RelDec S R} : players S :=
   Cons (R; D) (one_player R).
 
+(* Two players taking turns one after another: P1, P2, P1, P2, ... *)
 CoFixpoint two_players
            {S : Type}
            (R1 : relation S) `{D1 : RelDec S R1}
@@ -50,6 +59,7 @@ CoFixpoint two_players
   Cons (R1; D1)
     (Cons (R2; D2) (two_players R1 R2)).
 
+(* Three players taking turns one after another: P1, P2, P3, P1, P2, P3, ... *)
 CoFixpoint three_players
            {S : Type}
            (R1 : relation S) `{D1 : RelDec S R1}
@@ -59,6 +69,9 @@ CoFixpoint three_players
     (Cons (R2; D2)
        (Cons (R3; D3) (three_players R1 R2 R3))).
 
+(* Generalized version of the minimax algorithm for finite game trees.
+   Annotates every node of the finite game tree [t] with
+   the backed-up utility for the player whose turn it is at that depth. *)
 Fixpoint eval_tree
          {G S : Type}
          (ps : players S)

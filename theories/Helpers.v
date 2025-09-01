@@ -13,13 +13,15 @@ Notation "x .2" := (proj2_sig x) (at level 1, left associativity, format "x .2")
 
 Ltac inv x := inversion x; subst; clear x.
 
-Lemma sig_surjective :
+(* The eta law for the [sig] inductive type. *)
+Lemma sig_eta :
   forall {A : Type} (P : A -> Prop) (p : sig P), p = (p.1; p.2).
 Proof.
   intros A P p.
   destruct p. simpl. auto.
 Qed.
 
+(* Modus ponens at the [Forall] level. *)
 Lemma Forall_mp :
   forall {A : Type}
          (P Q : A -> Prop)
@@ -35,6 +37,8 @@ Proof.
   eapply Forall_cons; auto.
 Qed.
 
+(* Convert a list of [P]-satisfying dependent pairs (i.e. [sig]),
+   into a dependent pair of a [list] and that the entire list satisfies [P]. *)
 Fixpoint unite
   {A : Type} (P : A -> Prop) (l : list {a : A | P a}) : {l : list A | Forall P l}.
 Proof.
@@ -47,6 +51,9 @@ Proof.
   exact (xs'.2).
 Defined.
 
+(* Same thing as [distribute], but this auxiliary function takes
+   the [list] and the proof separately so that
+   it can do structural recursion on the list. *)
 Fixpoint zip_proofs
   {A : Type} (P : A -> Prop)
   (l : list A) (pf : Forall P l) {struct l} : list {a : A | P a}.
@@ -56,6 +63,8 @@ Proof.
   * refine ((x; _) :: @zip_proofs A P xs _); inversion pf; auto.
 Defined.
 
+(* Convert a [list] and a proof that all the elements of the list satisfy [P],
+   into a list of dependent pairs where each element satisfies [P]. *)
 Definition distribute
   {A : Type} (P : A -> Prop)
   (lpf : {l : list A | Forall P l}) : list {a : A | P a} :=
@@ -71,7 +80,7 @@ Proof.
   intros A P l.
   induction l; simpl; auto.
   f_equal. simpl.
-  rewrite sig_surjective; auto.
+  rewrite sig_eta; auto.
   auto.
 Qed.
 
@@ -86,61 +95,20 @@ Proof.
   induction l; simpl; f_equal; auto.
 Qed.
 
-Lemma Forall_unite_map_distribute :
-  forall
-    {A : Type}
-    {P1 P2 : A -> Prop}
-    (f : sig P2 -> sig P2)
-    (l : list A) (pf : Forall P2 l),
-  (forall (a : A) (p1 : P1 a) (p2 : P2 a), P1 (f (a; p2)).1) ->
-  Forall P1 l ->
-  Forall P1 (unite P2 (map f (distribute P2 (l; pf)))).1.
-Proof.
-  unfold distribute; simpl.
-  intros A P1 P2 f l pf1 pf2 pf3.
-  induction l.
-  simpl; constructor.
-  constructor.
-  simpl.
-  eapply pf2.
-  inv pf3; auto.
-  eapply IHl.
-  inv pf3; auto.
-Qed.
-
-Lemma proj1_unite_map_distribute :
-  forall {A : Type} (P : A -> Prop)
-         (f1 : sig P -> sig P)
-         (f2 : sig P -> sig P)
-         (l : list A) (pf1 pf2 : Forall P l),
-  (forall (a : A) (p1 p2 : P a), (f1 (a; p1)).1 = (f2 (a; p2)).1) ->
-    (unite P (map f1 (distribute P (l; pf1)))).1
-  = (unite P (map f2 (distribute P (l; pf2)))).1.
-Proof.
-  unfold distribute; simpl.
-  intros A P f1 f2 l pf1 pf2 eq.
-  induction l; simpl.
-  auto.
-  f_equal.
-  eapply eq.
-  eapply IHl.
-Qed.
-
+(* If the dependent pair (a; p) is in the [distribute]d list,
+   then [a] was in the first projection of [l]. *)
 Lemma In_distribute :
   forall
     {A : Type} (P : A -> Prop)
     (l : {l : list A | Forall P l})
     (a : A) (p : P a),
-  In (a; p) (distribute P l) -> In a l.1 /\ P a.
+  In (a; p) (distribute P l) -> In a l.1.
 Proof.
   intros A P l a p pf.
   destruct l as [l pf'].
-  induction l; intuition.
+  induction l; intuition auto.
   destruct pf.
   left. pose proof (eq := proj1_sig_eq H). simpl in eq; auto.
   right.
-  simpl in IHl.
-  refine (proj1 (IHl _ _)).
-  unfold distribute.
-  eauto.
+  simpl in IHl; eauto.
 Qed.

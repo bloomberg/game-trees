@@ -9,6 +9,7 @@ Require Import ExtLib.Core.RelDec.
 
 Import ListNotations.
 
+(* Monotonicity predicate on functions. *)
 Definition monotone
            {A B : Type}
            (R1 : relation A)
@@ -16,9 +17,13 @@ Definition monotone
            (g : A -> B) : Prop :=
   forall (x y : A), R1 x y -> R2 (g x) (g y).
 
+(* Define well-foundedness as a type class on a relation,
+   so that we can easily express a function requiring a
+   well-founded relation without having to pass the proof explicitly. *)
 Class WellFounded {A : Type} (R : relation A) : Prop :=
   wellfounded : forall (x : A), Acc R x.
 
+(* If a relation is well-founded, so is its subrelation. *)
 Theorem WF_subrelation :
   forall
     {A : Type}
@@ -29,7 +34,7 @@ Theorem WF_subrelation :
 Proof.
   intros A R1 R2 sub WF x.
   generalize (WF x); revert x.
-  induction 1; constructor; intuition.
+  induction 1; constructor; intuition auto.
 Defined.
 
 Instance WF_nat_lt : WellFounded lt.
@@ -37,9 +42,14 @@ Proof.
   eapply PeanoNat.Nat.lt_wf_0.
 Defined.
 
+(* Pull back the relation [R] along [f]:
+   [x] and [y] in [A] are related iff [f x] and [f y] are related by [R] in [B].
+   Useful to compare/order [A] by a key function [f]. *)
 Definition comparing {A B : Type} (R : relation B) (f : A -> B) : relation A :=
   fun (x y : A) => R (f x) (f y).
 
+(* The [comparing] relation is decidable (computed by this definition)
+   if the relation on the function image is decidable. *)
 #[export] Instance RelDec_comparing :
   forall {A B : Type} (R : relation B) `{RelDec B R} (f : A -> B), RelDec (comparing R f).
 Proof.
@@ -49,6 +59,8 @@ Proof.
   apply (rel_dec (f x) (f y)).
 Defined.
 
+(* The [comparing] relation is decidable (proved by this definition)
+   if the relation on the function image is decidable. *)
 #[export] Instance RelDec_Correct_comparing :
   forall {A B : Type} (R : relation B)
         `{D : RelDec B R} `{@RelDec_Correct B R D}
