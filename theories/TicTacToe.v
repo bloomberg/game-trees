@@ -240,7 +240,7 @@ Qed.
    where the next moves are guaranteed by [game_step] to be legal moves. *)
 Lemma ttt_next_intrinsic :
   forall g1 : game,
-    {l : list game | Forall (fun g2 : game => (flip game_step) g2 g1) l}.
+    {l : list game | Forall (game_step g1) l}.
 Proof.
   intros g1.
   exists (ttt_next g1).
@@ -285,7 +285,7 @@ Defined.
 Definition complete_tree : tree game :=
   unfold_tree (flip game_step) ttt_next_intrinsic ttt_init.
 
-(* True theorem but it takes too long to run! *)
+(* True theorem but it takes too long (about a minute on my machine) to run! *)
 (*
 Require GameTrees.Cotrees.
 

@@ -811,24 +811,32 @@ Proof.
   constructor; auto.
 Qed.
 
+(* A relation between two game states
+   where the game state [y] occurs after the game state [x]. *)
+Definition step
+           {A : Type}
+           (next : forall (a : A), colist A)
+           (x y : A) : Prop :=
+  In_colist y (next x).
+
 (* There is a sequence of steps from x to y in zero or more steps,
    where a one-step edge is "y appears in [next] x". *)
 Definition reachable
            {A : Type}
            (next : forall (a : A), colist A) : A -> A -> Prop :=
-  clos_refl_trans A (fun (x y : A) => In_colist y (next x)).
+  clos_refl_trans A (step next).
 
 (* Same as [reachable], but the transitive closure is right-stepping. *)
 Definition reachable_n1
            {A : Type}
            (next : forall (a : A), colist A) : A -> A -> Prop :=
-  @clos_refl_trans_n1 A (fun (x y : A) => In_colist y (next x)).
+  clos_refl_trans_n1 A (step next).
 
 (* Same as [reachable], but the transitive closure is left-stepping. *)
 Definition reachable_1n
            {A : Type}
            (next : forall (a : A), colist A) : A -> A -> Prop :=
-  @clos_refl_trans_1n A (fun (x y : A) => In_colist y (next x)).
+  clos_refl_trans_1n A (step next).
 
 (* An explicit unfolding of a call to [unfold_cotree] is bisimilar to the original. *)
 Lemma unfold_cotree_unwrap :
@@ -871,7 +879,7 @@ Proof.
     rewrite colist_unfold_eq; simpl.
     constructor.
     eapply C1.
-    eapply rt_trans; [eapply pf | eapply rt_step; rewrite eq; eleft; auto].
+    eapply rt_trans; [eapply pf | eapply rt_step; unfold step; rewrite eq; eleft; auto].
     assert (H : coincl c (next mid)).
     { rewrite eq. eapply coincl_tl; eapply coincl_refl. }
     clear eq.

@@ -40,7 +40,7 @@ Qed.
 (* Convert a list of [P]-satisfying dependent pairs (i.e. [sig]),
    into a dependent pair of a [list] and that the entire list satisfies [P]. *)
 Fixpoint unite
-  {A : Type} (P : A -> Prop) (l : list {a : A | P a}) : {l : list A | Forall P l}.
+  {A : Type} {P : A -> Prop} (l : list {a : A | P a}) : {l : list A | Forall P l}.
 Proof.
   destruct l as [|x xs].
   exists []. constructor.
@@ -55,7 +55,7 @@ Defined.
    the [list] and the proof separately so that
    it can do structural recursion on the list. *)
 Fixpoint zip_proofs
-  {A : Type} (P : A -> Prop)
+  {A : Type} {P : A -> Prop}
   (l : list A) (pf : Forall P l) {struct l} : list {a : A | P a}.
 Proof.
   destruct l as [|x xs].
@@ -66,15 +66,15 @@ Defined.
 (* Convert a [list] and a proof that all the elements of the list satisfy [P],
    into a list of dependent pairs where each element satisfies [P]. *)
 Definition distribute
-  {A : Type} (P : A -> Prop)
+  {A : Type} {P : A -> Prop}
   (lpf : {l : list A | Forall P l}) : list {a : A | P a} :=
-  zip_proofs P lpf.1 lpf.2.
+  zip_proofs lpf.1 lpf.2.
 
 (* To show that round trip between distribute and unite preserves the elements. *)
 Lemma distribute_unite :
   forall
-    {A : Type} (P : A -> Prop) (l : list {a : A | P a}),
-  distribute P (unite P l) = l.
+    {A : Type} {P : A -> Prop} (l : list {a : A | P a}),
+  distribute (unite l) = l.
 Proof.
   unfold distribute.
   intros A P l.
@@ -87,8 +87,8 @@ Qed.
 (* To show that round trip between distribute and unite preserves the elements. *)
 Lemma unite_distribute :
   forall
-    {A : Type} (P : A -> Prop) (l : list A) (pf : Forall P l),
-  (unite P (distribute P (l; pf))).1 = l.
+    {A : Type} {P : A -> Prop} (l : list A) (pf : Forall P l),
+  (unite (distribute (l; pf))).1 = l.
 Proof.
   unfold distribute; simpl.
   intros A P l pf.
@@ -99,10 +99,10 @@ Qed.
    then [a] was in the first projection of [l]. *)
 Lemma In_distribute :
   forall
-    {A : Type} (P : A -> Prop)
+    {A : Type} {P : A -> Prop}
     (l : {l : list A | Forall P l})
     (a : A) (p : P a),
-  In (a; p) (distribute P l) -> In a l.1.
+  In (a; p) (distribute l) -> In a l.1.
 Proof.
   intros A P l a p pf.
   destruct l as [l pf'].

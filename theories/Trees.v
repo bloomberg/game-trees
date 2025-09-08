@@ -348,7 +348,7 @@ Fixpoint unfold_tree_aux
   match acc with
   | Acc_intro _ acc' =>
     node init (map (fun '(x;pf) => unfold_tree_aux R next x (acc' x pf))
-                   (distribute (fun a => R a init) (next init)))
+                   (distribute (next init)))
   end.
 
 (* The entry point of unfolding of a tree.
@@ -384,7 +384,7 @@ Proof.
   eapply Forall_forall.
   intros [x pf'] i.
   eapply Forall_unfold_tree_aux; eauto.
-  pose proof (In_distribute _ _ x pf' i).
+  pose proof (In_distribute _ x pf' i).
   specialize (pf init p).
   rewrite Forall_forall in pf.
   auto.
@@ -427,13 +427,21 @@ Proof.
   eapply unfold_tree_aux_same.
 Qed.
 
+(* A relation between two game states
+   where the game state [y] occurs after the game state [x]. *)
+Definition step
+           {A : Type} {R : relation A}
+           (next : forall (a : A), {l : list A | Forall (fun x => R x a) l })
+           (x y : A) : Prop :=
+  In y (next x).1.
+
 (* There is a sequence of steps from x to y in zero or more steps,
    where a one-step edge is "y appears in [next] x". *)
 Definition reachable
            {A : Type} {R : relation A}
            (next : forall (a : A), {l : list A | Forall (fun x => R x a) l })
            : A -> A -> Prop :=
-  clos_refl_trans _ (fun (x y : A) => In y (next x).1).
+  clos_refl_trans _ (step next).
 
 (* Same as [reachable], but the transitive closure is left-stepping. *)
 Definition reachable_1n
@@ -462,7 +470,7 @@ Proof.
   eapply Forall_map.
   eapply Forall_forall.
   intros [x pf] i'.
-  pose proof (i'' := In_distribute _ _ x pf i'); auto.
+  pose proof (i'' := In_distribute _ x pf i'); auto.
   rewrite Forall_nodes_In_tree.
   intros y i'''.
   eapply rt_trans.
