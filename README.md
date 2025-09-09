@@ -16,9 +16,9 @@ This repository contains functions and proofs about game trees in [Rocq](https:/
 
 ## Quick start
 
-In `GameTrees.Trees.Unfold`, we provide an `unfold_tree` function that populates an inductive tree in a provably terminating way, if you abide by certain restrictions about what the `next` function says the next steps will be. We prove that this function is *sound* and *complete*: a value is in the game tree if and only if there is a sequence of applications of `next` from the initial state that create that value.
+In `GameTrees.Trees`, we provide an `unfold_tree` function that populates an inductive tree in a provably terminating way, if you abide by certain restrictions about what the `next` function says the next steps will be. We prove that this function is *sound* and *complete*: a value is in the game tree if and only if there is a sequence of applications of `next` from the initial state that create that value.
 
-In `GameTrees.Cotrees.Unfold`, we provide an `unfold_cotree` function that populates a possibly infinite tree. We prove that this function is also *sound* and *complete*.
+In `GameTrees.Cotrees`, we provide an `unfold_cotree` function that populates a possibly infinite tree. We prove that this function is also *sound* and *complete*.
 
 To showcase our library, we provide an example: a tic-tac-toe game for which we unfold a proven-complete game tree and run minimax algorithm to implement an unbeatable AI.
 
