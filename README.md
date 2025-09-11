@@ -20,7 +20,9 @@ In `GameTrees.Trees`, we provide an `unfold_tree` function that populates an ind
 
 In `GameTrees.Cotrees`, we provide an `unfold_cotree` function that populates a possibly infinite tree. We prove that this function is also *sound* and *complete*.
 
-To showcase our library, we provide an example: a tic-tac-toe game for which we unfold a proven-complete game tree and run minimax algorithm to implement an unbeatable AI.
+To showcase our library, we provide two examples:
+1. a tic-tac-toe game for which we unfold a proven-complete game tree and run minimax algorithm to implement an unbeatable AI,
+2. a SAT solver for which we explore the possible assignments via a game tree, and find a set of assignments that satisfy a proposition.
 
 ## Building
 
@@ -28,7 +30,7 @@ You have to have the `rocq-released` registry of `opam`. You can obtain it by ru
 
 To install the dependencies, run `opam install . --deps-only`. The project builds with Rocq 9.0.0 or higher.
 
-To build the project use `make`. After that, you can optionally run the tic-tac-toe game with `make run`.
+To build the project use `make`. After that, you can optionally run the tic-tac-toe game with `make ttt`, and the SAT solver example with `make sat`.
 
 ## Installation
 

@@ -384,10 +384,10 @@ Definition play (t : tree (game * nat)) : IO (tree (game * nat)) :=
 Definition unsafe_main : io_unit :=
   IO.unsafe_run (IO.loop play scored_tree).
 
-Require Import Corelib.extraction.ExtrOcamlBasic.
-Require Import Corelib.extraction.ExtrOcamlBasic.
-From Stdlib Require Import extraction.ExtrOcamlString.
-From Stdlib Require Import extraction.ExtrOcamlNatInt.
+From Stdlib Require Import ExtrOcamlBasic.
+From Stdlib Require Import ExtrOcamlBasic.
+From Stdlib Require Import ExtrOcamlString.
+From Stdlib Require Import ExtrOcamlNatInt.
 
 Module Extraction.
 Extract Inductive sigT => "( * )" [""].

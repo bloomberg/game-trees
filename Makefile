@@ -6,11 +6,14 @@ clean: Makefile.coq
 	rm -f Makefile.coq
 	rm -f Makefile.coq.conf
 	rm -f tictactoe.{ml,mli}
+	rm -f sat.{ml,mli}
 
 Makefile.coq: _CoqProject
 	rocq makefile -f _CoqProject -o Makefile.coq
 
-run:
+ttt:
 	ocaml tictactoe.ml
+sat:
+	ocaml sat.ml
 
 .PHONY: Makefile.coq all clean
