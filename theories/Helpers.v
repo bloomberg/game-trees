@@ -21,6 +21,20 @@ Proof.
   destruct p. simpl. auto.
 Qed.
 
+(* Function application at the [Forall] level. *)
+Lemma Forall_appl :
+  forall {A B : Type}
+         (P : A -> B -> Prop)
+         (l : list A),
+  Forall (fun a => forall (b : B), P a b) l ->
+  forall (b : B), Forall (fun a => P a b) l.
+Proof.
+  intros A B P l pf1 b.
+  induction l; auto.
+  inversion pf1; subst.
+  eapply Forall_cons; auto.
+Qed.
+
 (* Modus ponens at the [Forall] level. *)
 Lemma Forall_mp :
   forall {A : Type}
