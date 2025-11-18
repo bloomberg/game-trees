@@ -334,25 +334,27 @@ Proof.
     eapply C1; eauto. }
 Qed.
 
-(* Chlipala's [frob] for [colist]s.
-   For the original [frob], see http://adam.chlipala.net/cpdt/html/Cpdt.Coinductive.html
+(* CoqArt's decomposition lemma (or Chlipala's [frob]) for [colist]s.
+   For CoqArt's decomposition lemma, see CoqArt's chapter on coinductives:
+   https://www.labri.fr/perso/casteran/CoqArt/chapter13.pdf 
+   For Chlipala's [frob], see http://adam.chlipala.net/cpdt/html/Cpdt.Coinductive.html
    An identity function that pattern matches on the [colist] and reconstructs the original.
    It induces a reduction context that allows guardedness checks to succeed. *)
-Definition colist_unfold {A : Type} (l : colist A) : colist A :=
+Definition colist_decompose {A : Type} (l : colist A) : colist A :=
   match l with conil => conil | cocons x xs => cocons x xs end.
 
-(* Proof that [colist_unfold] indeed acts like the identity function. *)
-Lemma colist_unfold_eq : forall {A : Type} (l : colist A), l = colist_unfold l.
+(* Proof that [colist_decompose] indeed acts like the identity function. *)
+Lemma colist_decomposition_lemma : forall {A : Type} (l : colist A), l = colist_decompose l.
 Proof. destruct l; auto. Qed.
 
-(* Chlipala's [frob] for [cotree]s.
+(* CoqArt's decomposition lemma (or Chlipala's [frob]) for [cotree]s.
    An identity function that pattern matches on the [cotree] and reconstructs the original.
    It induces a reduction context that allows guardedness checks to succeed. *)
-Definition cotree_unfold {A : Type} (t : cotree A) : cotree A :=
+Definition cotree_decompose {A : Type} (t : cotree A) : cotree A :=
   match t with conode a f => conode a f end.
 
-(* Proof that [colist_unfold] indeed acts like the identity function. *)
-Lemma cotree_unfold_eq : forall {A : Type} (t : cotree A), t = cotree_unfold t.
+(* Proof that [colist_decompose] indeed acts like the identity function. *)
+Lemma cotree_decomposition_lemma : forall {A : Type} (t : cotree A), t = cotree_decompose t.
 Proof. destruct t; auto. Qed.
 
 (* The [colist] counterpart of [Forall_map]. *)
@@ -368,7 +370,7 @@ Proof.
     destruct l.
     constructor.
     pattern (comap f (cocons a l)) in pf.
-    rewrite colist_unfold_eq in pf; simpl in pf.
+    rewrite colist_decomposition_lemma in pf; simpl in pf.
     constructor.
     inv pf; auto.
     eapply C.
@@ -378,10 +380,10 @@ Proof.
     intros l pf.
     destruct l.
     pattern (comap f conil).
-    rewrite colist_unfold_eq; simpl.
+    rewrite colist_decomposition_lemma; simpl.
     constructor.
     pattern (comap f (cocons a l)).
-    rewrite colist_unfold_eq; simpl.
+    rewrite colist_decomposition_lemma; simpl.
     constructor.
     inv pf; auto.
     eapply C.
@@ -399,17 +401,17 @@ Proof.
     induction l.
     inv pf.
     pattern (colist_of_list (a0 :: l)).
-    rewrite colist_unfold_eq; simpl.
+    rewrite colist_decomposition_lemma; simpl.
     inv pf.
     left.
     right; auto. }
   { induction l.
     { pattern (@colist_of_list A []).
-      rewrite colist_unfold_eq; simpl.
+      rewrite colist_decomposition_lemma; simpl.
       intros pf. inv pf. }
     {
       pattern (colist_of_list (a0 :: l)).
-      rewrite colist_unfold_eq; simpl.
+      rewrite colist_decomposition_lemma; simpl.
       intros pf.
       inv pf.
       left; auto.
@@ -438,10 +440,10 @@ Proof.
   intros A B f l x i.
   induction i.
   pattern (comap f (cocons x xs)).
-  rewrite colist_unfold_eq; simpl.
+  rewrite colist_decomposition_lemma; simpl.
   left; auto.
   pattern (comap f (cocons y xs)).
-  rewrite colist_unfold_eq; simpl.
+  rewrite colist_decomposition_lemma; simpl.
   right; auto.
 Qed.
 
@@ -459,16 +461,16 @@ Proof.
   destruct l.
   {
     pattern (comap g (comap f conil)).
-    rewrite colist_unfold_eq; simpl.
+    rewrite colist_decomposition_lemma; simpl.
     pattern (comap (fun x : A => g (f x)) conil).
-    rewrite colist_unfold_eq; simpl.
+    rewrite colist_decomposition_lemma; simpl.
     repeat constructor.
   }
   {
     pattern (comap g (comap f (cocons a l))).
-    rewrite colist_unfold_eq; simpl.
+    rewrite colist_decomposition_lemma; simpl.
     pattern (comap (fun x : A => g (f x)) (cocons a l)).
-    rewrite colist_unfold_eq; simpl.
+    rewrite colist_decomposition_lemma; simpl.
     constructor; auto.
   }
 Qed.
@@ -850,7 +852,7 @@ Lemma unfold_cotree_unwrap :
 Proof.
   intros A next init.
   pattern (unfold_cotree next init) at 1.
-  rewrite cotree_unfold_eq; simpl.
+  rewrite cotree_decomposition_lemma; simpl.
   reflexivity.
 Qed.
 
@@ -868,15 +870,15 @@ Proof.
   cofix C1.
   intros init mid pf.
   pattern (unfold_cotree next mid).
-  rewrite cotree_unfold_eq; simpl.
+  rewrite cotree_decomposition_lemma; simpl.
   constructor.
   auto.
   destruct (next mid) eqn:eq.
   { pattern (comap (unfold_cotree next) conil).
-    rewrite colist_unfold_eq; simpl.
+    rewrite colist_decomposition_lemma; simpl.
     constructor. }
   { pattern (comap (unfold_cotree next) (cocons a c)).
-    rewrite colist_unfold_eq; simpl.
+    rewrite colist_decomposition_lemma; simpl.
     constructor.
     eapply C1.
     eapply rt_trans; [eapply pf | eapply rt_step; unfold step; rewrite eq; eleft; auto].
@@ -887,9 +889,9 @@ Proof.
     cofix C2.
     intros l pf'.
     destruct l.
-    { rewrite colist_unfold_eq; simpl.
+    { rewrite colist_decomposition_lemma; simpl.
       constructor. }
-    { rewrite colist_unfold_eq; simpl.
+    { rewrite colist_decomposition_lemma; simpl.
       constructor.
       eapply C1.
       eapply rt_trans; [eapply pf | eapply rt_step].

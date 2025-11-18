@@ -289,14 +289,16 @@ Definition complete_tree : tree game :=
 (*
 Require GameTrees.Cotrees.
 
-Theorem ttt_is_finite : Cotrees.finite_game ttt_next ttt_init.
+Definition ttt_next' (g : game) : Cotrees.colist game :=
+  Cotrees.colist_of_list (ttt_next g).
+
+Theorem ttt_is_finite : Cotrees.finite_game ttt_next' ttt_init.
 Proof.
   exists 10; vm_compute; reflexivity.
 Qed.
-Defined.
 
 Definition complete_tree' : tree game :=
-  Cotrees.tree_of_cotree ttt_is_finite.1 (Cotrees.unfold_cotree ttt_next ttt_init).
+  Cotrees.tree_of_cotree ttt_is_finite.1 (Cotrees.unfold_cotree ttt_next' ttt_init).
 *)
 
 From Stdlib Require Import String.
