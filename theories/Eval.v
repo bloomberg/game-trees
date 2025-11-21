@@ -98,7 +98,7 @@ Qed.
 
 (* An infinite stream of how the player turns go,
    and a decidable "less than" relation on how the score of each is evaluated. *)
-Definition players (S : Type) :=
+Definition players (S : Type) : Type :=
   Stream {R : relation S & RelDec R}.
 
 (* The [Stream] counterpart of [CoForall]. *)

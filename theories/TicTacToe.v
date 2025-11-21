@@ -7,13 +7,13 @@ From Stdlib Require Import List.
 From Stdlib Require Import PeanoNat.
 From Stdlib Require Import Psatz.
 From Stdlib Require Import Program.Equality.
-From Stdlib Require Import Wellfounded.Inverse_Image.
 
 Import ListNotations.
 
 Require Import GameTrees.Helpers.
 Require Import GameTrees.Relations.
 Require Import GameTrees.Trees.
+Require GameTrees.Cotrees.
 Require Import GameTrees.Eval.
 
 Inductive player : Type := x | o.
@@ -261,7 +261,7 @@ Definition later (g1 g2 : game) : Prop :=
 Instance WF_later : WellFounded later.
 Proof.
   unfold later.
-  apply wf_inverse_image, Nat.lt_wf_0.
+  apply Relations.wf_inverse_image, Nat.lt_wf_0.
 Defined.
 
 Lemma less_empty_cells_after_apply_move :
@@ -287,16 +287,15 @@ Definition complete_tree : tree game :=
 
 (* True theorem but it takes too long (about a minute on my machine) to run! *)
 (*
-Require GameTrees.Cotrees.
-
 Definition ttt_next' (g : game) : Cotrees.colist game :=
   Cotrees.colist_of_list (ttt_next g).
 
 Theorem ttt_is_finite : Cotrees.finite_game ttt_next' ttt_init.
 Proof.
   exists 10; vm_compute; reflexivity.
-Qed.
+Defined.
 
+(* Alternatively, you can define [complete_tree] through the coinductive unfold function. *)
 Definition complete_tree' : tree game :=
   Cotrees.tree_of_cotree ttt_is_finite.1 (Cotrees.unfold_cotree ttt_next' ttt_init).
 *)

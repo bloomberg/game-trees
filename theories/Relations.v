@@ -17,10 +17,37 @@ Definition monotone
            (g : A -> B) : Prop :=
   forall (x y : A), R1 x y -> R2 (g x) (g y).
 
+Section Inverse_Image.
+  (* Author: Bruno Barras. Copied from the Rocq stdlib, but defined transparently. *)
+  Context (A B : Type) (R : B -> B -> Prop) (f : A -> B).
+
+  Remark Acc_lemma :
+    forall (y : B), Acc R y ->
+    forall (x : A), y = f x -> Acc (fun x y : A => R (f x) (f y)) x.
+  Proof.
+    induction 1 as [y _ IHAcc]; intros x H.
+    apply Acc_intro; intros y0 H1.
+    apply (IHAcc (f y0)); try trivial.
+    rewrite H; trivial.
+  Defined.
+
+  Lemma Acc_inverse_image :
+    forall (x : A), Acc R (f x) -> Acc (fun x y : A => R (f x) (f y)) x.
+  Proof.
+    intros; apply (Acc_lemma (f x)); trivial.
+  Defined.
+
+  Theorem wf_inverse_image : well_founded R -> well_founded (fun x y : A => R (f x) (f y)).
+  Proof.
+    red; intros; apply Acc_inverse_image; auto.
+  Defined.
+
+End Inverse_Image.
+
 (* Define well-foundedness as a type class on a relation,
    so that we can easily express a function requiring a
    well-founded relation without having to pass the proof explicitly. *)
-Class WellFounded {A : Type} (R : relation A) : Prop :=
+Class WellFounded {A : Type} (R : relation A) : Type :=
   wellfounded : forall (x : A), Acc R x.
 
 (* If a relation is well-founded, so is its subrelation. *)
