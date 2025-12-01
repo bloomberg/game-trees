@@ -336,7 +336,7 @@ Qed.
 
 (* CoqArt's decomposition lemma (or Chlipala's [frob]) for [colist]s.
    For CoqArt's decomposition lemma, see CoqArt's chapter on coinductives:
-   https://www.labri.fr/perso/casteran/CoqArt/chapter13.pdf 
+   https://www.labri.fr/perso/casteran/CoqArt/chapter13.pdf
    For Chlipala's [frob], see http://adam.chlipala.net/cpdt/html/Cpdt.Coinductive.html
    An identity function that pattern matches on the [colist] and reconstructs the original.
    It induces a reduction context that allows guardedness checks to succeed. *)
@@ -815,30 +815,30 @@ Qed.
 
 (* A relation between two game states
    where the game state [y] occurs after the game state [x]. *)
-Definition step
+Definition costep
            {A : Type}
            (next : forall (a : A), colist A)
            (x y : A) : Prop :=
   In_colist y (next x).
 
-(* There is a sequence of steps from x to y in zero or more steps,
+(* There is a sequence of costeps from x to y in zero or more costeps,
    where a one-step edge is "y appears in [next] x". *)
-Definition reachable
+Definition coreachable
            {A : Type}
            (next : forall (a : A), colist A) : A -> A -> Prop :=
-  clos_refl_trans A (step next).
+  clos_refl_trans A (costep next).
 
-(* Same as [reachable], but the transitive closure is right-stepping. *)
-Definition reachable_n1
+(* Same as [coreachable], but the transitive closure is right-costepping. *)
+Definition coreachable_n1
            {A : Type}
            (next : forall (a : A), colist A) : A -> A -> Prop :=
-  clos_refl_trans_n1 A (step next).
+  clos_refl_trans_n1 A (costep next).
 
-(* Same as [reachable], but the transitive closure is left-stepping. *)
-Definition reachable_1n
+(* Same as [coreachable], but the transitive closure is left-costepping. *)
+Definition coreachable_1n
            {A : Type}
            (next : forall (a : A), colist A) : A -> A -> Prop :=
-  clos_refl_trans_1n A (step next).
+  clos_refl_trans_1n A (costep next).
 
 (* An explicit unfolding of a call to [unfold_cotree] is bisimilar to the original. *)
 Lemma unfold_cotree_unwrap :
@@ -856,15 +856,15 @@ Proof.
   reflexivity.
 Qed.
 
-(* If [mid] is [reachable] from [init],
-   then every node produced by [unfold_cotree next mid] is [reachable] from [mid]. *)
+(* If [mid] is [coreachable] from [init],
+   then every node produced by [unfold_cotree next mid] is [coreachable] from [mid]. *)
 Lemma unfold_cotree_sound_aux :
   forall
     {A : Type}
     (next : A -> colist A),
   forall (init mid : A),
-    reachable next init mid ->
-    Forall_conodes (reachable next init) (unfold_cotree next mid).
+    coreachable next init mid ->
+    Forall_conodes (coreachable next init) (unfold_cotree next mid).
 Proof.
   intros A next.
   cofix C1.
@@ -881,7 +881,7 @@ Proof.
     rewrite colist_decompose_eq; simpl.
     constructor.
     eapply C1.
-    eapply rt_trans; [eapply pf | eapply rt_step; unfold step; rewrite eq; eleft; auto].
+    eapply rt_trans; [eapply pf | eapply rt_step; unfold costep; rewrite eq; eleft; auto].
     assert (H : coincl c (next mid)).
     { rewrite eq. eapply coincl_tl; eapply coincl_refl. }
     clear eq.
@@ -902,7 +902,7 @@ Proof.
 Qed.
 
 (* If a state is the unfolded game tree,
-   then that state must be [reachable] in a game from the initial state. *)
+   then that state must be [coreachable] in a game from the initial state. *)
 Theorem unfold_cotree_sound :
   forall
     {A : Type}
@@ -910,7 +910,7 @@ Theorem unfold_cotree_sound :
     (init : A),
   forall (a : A),
     In_cotree a (unfold_cotree next init) ->
-    reachable next init a.
+    coreachable next init a.
 Proof.
   intros A next init.
   rewrite <- Forall_conodes_In_cotree.
@@ -918,7 +918,7 @@ Proof.
   eapply rt_refl.
 Qed.
 
-(* Any game state left-steppingly reachable from the initial state
+(* Any game state left-steppingly coreachable from the initial state
    must be in the unfolded game tree. *)
 Theorem unfold_cotree_complete_1n :
   forall
@@ -926,7 +926,7 @@ Theorem unfold_cotree_complete_1n :
     (next : forall (a : A), colist A)
     (init : A),
   forall (a : A),
-    reachable_1n next init a ->
+    coreachable_1n next init a ->
     In_cotree a (unfold_cotree next init).
 Proof.
   intros A next init a ch.
@@ -942,7 +942,7 @@ Proof.
   { rewrite <- unfold_cotree_unwrap in *; eauto. }
 Qed.
 
-(* Any game state [reachable] from the initial state
+(* Any game state [coreachable] from the initial state
    must be in the unfolded game tree. *)
 Theorem unfold_cotree_complete :
   forall
@@ -950,12 +950,12 @@ Theorem unfold_cotree_complete :
     (next : forall (a : A), colist A)
     (init : A),
   forall (a : A),
-    reachable next init a ->
+    coreachable next init a ->
     In_cotree a (unfold_cotree next init).
 Proof.
   intros A next init a.
   pose proof (unfold_cotree_complete_1n next init a).
-  unfold reachable, reachable_1n in *.
+  unfold coreachable, coreachable_1n in *.
   rewrite <- clos_rt_rt1n_iff in *; auto.
 Qed.
 
