@@ -286,19 +286,17 @@ Definition complete_tree : tree game :=
   unfold_tree (flip game_step) ttt_next_intrinsic ttt_init.
 
 (* True theorem but it takes too long (about a minute on my machine) to run! *)
-(*
-Definition ttt_next' (g : game) : Cotrees.colist game :=
+Definition ttt_conext (g : game) : Cotrees.colist game :=
   Cotrees.colist_of_list (ttt_next g).
 
-Theorem ttt_is_finite : Cotrees.finite_game ttt_next' ttt_init.
+Theorem ttt_is_finite : Cotrees.finite_game ttt_conext ttt_init.
 Proof.
   exists 10; vm_compute; reflexivity.
 Defined.
 
 (* Alternatively, you can define [complete_tree] through the coinductive unfold function. *)
-Definition complete_tree' : tree game :=
-  Cotrees.tree_of_cotree ttt_is_finite.1 (Cotrees.unfold_cotree ttt_next' ttt_init).
-*)
+Definition complete_tree_again : tree game :=
+  Cotrees.tree_of_cotree ttt_is_finite.1 (Cotrees.unfold_cotree ttt_conext ttt_init).
 
 From Stdlib Require Import String.
 #[local] Open Scope string_scope.
