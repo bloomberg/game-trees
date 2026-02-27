@@ -1,4 +1,4 @@
-(* Copyright 2025 Bloomberg Finance L.P. *)
+(* Copyright 2026 Bloomberg Finance L.P. *)
 (* Distributed under the terms of the Apache 2.0 license. *)
 
 (* Verified shallow alpha-beta pruning for generalized multi-player game trees.
