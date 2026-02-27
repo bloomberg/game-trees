@@ -15,6 +15,7 @@ Require Import GameTrees.Relations.
 Require Import GameTrees.Trees.
 Require GameTrees.Cotrees.
 Require Import GameTrees.Eval.
+Require Import GameTrees.AlphaBeta.
 
 Inductive player : Type := x | o.
 
@@ -317,8 +318,8 @@ Definition score (g : game) : nat :=
   | ongoing => 1
   end.
 
-Definition scored_tree : tree (game * nat) :=
-  eval_tree (two_players lt gt) score complete_tree.
+(* Score children on-the-fly using alpha-beta pruning
+   instead of pre-computing the entire scored tree. *)
 
 Definition print_cell (x : cell) : IO unit :=
   print_string (match x with | None => "." | Some x => "X" | Some o => "O" end).
@@ -344,8 +345,8 @@ Definition exit_failure {A : Type} : IO A :=
 Definition exit_success {A : Type} : IO A :=
   exit (ExtrOcamlIntConv.int_of_nat 0).
 
-Definition play (t : tree (game * nat)) : IO (tree (game * nat)) :=
-  let '(g, _) := root t in
+Definition play (t : tree game) : IO (tree game) :=
+  let g := root t in
   print_game g ;;
   match get_result g with
   | won_by x => print_endline "You won the game!" ;; exit_success
@@ -367,21 +368,25 @@ Definition play (t : tree (game * nat)) : IO (tree (game * nat)) :=
     | Some m'' =>
       let g' := apply_move g m'' in
       match List.find
-              (fun t' => if dec_eq_game (fst (root t')) g' then true else false)
+              (fun t' => if dec_eq_game (root t') g' then true else false)
               (children t) with
       | None =>
           print_endline "Invalid move, try again." ;; IO.ret t
       | Some t' =>
-        match max (comparing gt (fun t => snd (root t))) (children t') with
+        (* AI scores each child via alpha-beta pruning, picks the min *)
+        let scored := map (fun c => (c, eval_ab players_le_ge score
+                                          (fun _ => false) c))
+                          (children t') in
+        match max (comparing gt snd) scored with
         | None => IO.ret t'
-        | Some t'' => IO.ret t''
+        | Some (t'', _) => IO.ret t''
         end
       end
     end
   end.
 
 Definition unsafe_main : io_unit :=
-  IO.unsafe_run (IO.loop play scored_tree).
+  IO.unsafe_run (IO.loop play complete_tree).
 
 From Stdlib Require Import ExtrOcamlBasic.
 From Stdlib Require Import ExtrOcamlBasic.
