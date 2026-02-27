@@ -216,13 +216,10 @@ Qed.
 
 (* ---------- Main theorem ---------- *)
 
-Section AlphaBetaProof.
-
-Context {G S : Type}.
-Context (score : G -> S).
-
 Theorem eval_ab_fishburn :
-  forall (t : tree G)
+  forall {G S : Type}
+         (score : G -> S)
+         (t : tree G)
          (ps : players S)
          (cutoff : S -> bool),
     player_ops_strong ps ->
@@ -230,7 +227,7 @@ Theorem eval_ab_fishburn :
     cutoff_monotone (player_rel ps) cutoff ->
     fishburn cutoff (eval_val ps score t) (eval_ab ps score cutoff t).
 Proof.
-  intros t.
+  intros G S score t.
   refine (tree_forall_ind G
     (fun t => forall (ps : players S) (cutoff : S -> bool),
       player_ops_strong ps ->
@@ -313,18 +310,17 @@ Proof.
 Qed.
 
 Theorem eval_ab_correct :
-  forall (t : tree G) (ps : players S),
+  forall {G S : Type} (score : G -> S)
+         (t : tree G) (ps : players S),
     player_ops_strong ps ->
     adversarial_players ps ->
     eval_ab ps score (fun _ => false) t = eval_val ps score t.
 Proof.
-  intros t ps Hps Hadv.
+  intros G S score t ps Hps Hadv.
   apply fishburn_false.
   apply eval_ab_fishburn; auto.
   unfold cutoff_monotone. intros. discriminate.
 Qed.
-
-End AlphaBetaProof.
 
 (* ---------- Nat instances ---------- *)
 
