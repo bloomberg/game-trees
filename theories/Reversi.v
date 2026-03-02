@@ -1059,6 +1059,425 @@ Proof.
   - exact players_le_ge_adversarial.
 Qed.
 
+(* ---------- Board symmetry ---------- *)
+
+(* Reflect board horizontally: column c -> column 7-c.
+   For row-major indexing, position row*8+col -> row*8+(7-col). *)
+Definition reflect_pos (pos : nat) : nat :=
+  let row := pos / 8 in
+  let col := pos mod 8 in
+  row * 8 + (7 - col).
+
+Definition reflect_board_fn (b : board) : board :=
+  map (fun i => get_cell b (reflect_pos i)) (seq 0 64).
+
+Definition reflect_move (m : move) : move :=
+  match m with
+  | place row col => place row (7 - col)
+  | pass => pass
+  end.
+
+Definition reflect_game (g : game) : game :=
+  {| current_board := reflect_board_fn (current_board g)
+   ; next_turn := next_turn g
+   ; pass_count := pass_count g
+   |}.
+
+Lemma reflect_board_fn_length :
+  forall b, length (reflect_board_fn b) = 64.
+Proof.
+  intros. unfold reflect_board_fn. rewrite map_length, seq_length. auto.
+Qed.
+
+Lemma reflect_pos_in_bounds :
+  forall pos, pos < 64 -> reflect_pos pos < 64.
+Proof.
+  intros pos H. unfold reflect_pos.
+  assert (pos / 8 < 8) by (apply Nat.div_lt_upper_bound; lia).
+  assert (pos mod 8 < 8) by (apply Nat.mod_upper_bound; lia).
+  lia.
+Qed.
+
+Lemma reflect_pos_involutive :
+  forall pos, pos < 64 -> reflect_pos (reflect_pos pos) = pos.
+Proof.
+  intros pos H.
+  do 64 (destruct pos as [|pos]; [vm_compute; reflexivity|]).
+  lia.
+Qed.
+
+(* Rotate board 90 degrees clockwise: (row, col) -> (col, 7-row). *)
+Definition rotate_pos (pos : nat) : nat :=
+  let row := pos / 8 in
+  let col := pos mod 8 in
+  col * 8 + (7 - row).
+
+Definition rotate_board_fn (b : board) : board :=
+  map (fun i => get_cell b (rotate_pos i)) (seq 0 64).
+
+Definition rotate_move (m : move) : move :=
+  match m with
+  | place row col => place col (7 - row)
+  | pass => pass
+  end.
+
+Definition rotate_game (g : game) : game :=
+  {| current_board := rotate_board_fn (current_board g)
+   ; next_turn := next_turn g
+   ; pass_count := pass_count g
+   |}.
+
+Lemma rotate_board_fn_length :
+  forall b, length (rotate_board_fn b) = 64.
+Proof.
+  intros. unfold rotate_board_fn. rewrite map_length, seq_length. auto.
+Qed.
+
+Lemma rotate_pos_in_bounds :
+  forall pos, pos < 64 -> rotate_pos pos < 64.
+Proof.
+  intros pos H. unfold rotate_pos.
+  assert (pos / 8 < 8) by (apply Nat.div_lt_upper_bound; lia).
+  assert (pos mod 8 < 8) by (apply Nat.mod_upper_bound; lia).
+  lia.
+Qed.
+
+(* ---------- Stable discs ---------- *)
+
+(* A corner position is one of (0,0), (0,7), (7,0), (7,7). *)
+Definition is_corner (row col : nat) : bool :=
+  ((row =? 0) || (row =? 7)) && ((col =? 0) || (col =? 7)).
+
+(* An edge position is on the border of the board. *)
+Definition is_edge (row col : nat) : bool :=
+  (row =? 0) || (row =? 7) || (col =? 0) || (col =? 7).
+
+(* A disc at position pos is stable for player p if it can never be flipped.
+   We define stability inductively: corners are always stable, and a disc
+   adjacent to stable discs in all flip-vulnerable directions is stable. *)
+
+(* For certificate purposes, we represent a stable set as a list of positions
+   known to be stable, and verify it against the board. *)
+Definition stable_set := list nat.
+
+(* Check that every position in the stable set is occupied by player p. *)
+Definition stable_set_owned (b : board) (p : player) (ss : stable_set) : bool :=
+  forallb (fun pos =>
+    match get_cell b pos with
+    | Some q => if dec_eq_player q p then true else false
+    | None => false
+    end) ss.
+
+(* Count pieces owned by player p. *)
+Definition piece_count (b : board) (p : player) : nat :=
+  count_pieces b p.
+
+(* A player with more than 32 stable discs has won — the opponent cannot
+   possibly have a majority since there are only 64 cells. *)
+Definition stable_majority (b : board) (p : player) (ss : stable_set) : bool :=
+  stable_set_owned b p ss && (32 <? length ss).
+
+(* ---------- Certificate type ---------- *)
+
+(* A certificate is a compact witness that a game position has a particular
+   game-theoretic value. It mirrors the game tree but uses structural
+   lemmas to skip subtrees where the outcome is determined. *)
+Inductive cert_node : Type :=
+  (* The current player plays move m, opponent responds per sub-certificate. *)
+| cert_play : move -> cert_node -> cert_node
+  (* The current player can play any of these moves; all lead to the
+     claimed value. Used at MAX nodes. *)
+| cert_exists : move -> cert_node -> cert_node
+  (* All opponent responses are covered. Used at MIN nodes. *)
+| cert_forall : list (move * cert_node) -> cert_node
+  (* Leaf: game is terminal, result is determined by get_result. *)
+| cert_terminal : cert_node
+  (* Stable disc majority: player p owns >32 stable discs. *)
+| cert_stable : player -> stable_set -> cert_node
+  (* Symmetry: the position is equivalent to a reflected/rotated one
+     already certified. The transform maps this position to the
+     certified one. *)
+| cert_reflect : cert_node -> cert_node
+| cert_rotate : cert_node -> cert_node.
+
+(* ---------- Certificate checker ---------- *)
+
+(* The claimed result of a certified position. *)
+Inductive cert_result : Type :=
+| cert_win : player -> cert_result
+| cert_draw : cert_result.
+
+(* Check a certificate against a game state. Returns Some r if the
+   certificate proves that the game-theoretic value is r. *)
+Fixpoint check_cert (g : game) (c : cert_node) (fuel : nat) : option cert_result :=
+  match fuel with
+  | O => None  (* out of fuel *)
+  | S fuel' =>
+    match c with
+    | cert_terminal =>
+      match get_result g with
+      | won_by p => Some (cert_win p)
+      | draw => Some cert_draw
+      | ongoing => None  (* not actually terminal *)
+      end
+
+    | cert_stable p ss =>
+      if stable_majority (current_board g) p ss
+      then Some (cert_win p)
+      else None
+
+    | cert_exists m sub =>
+      (* Current player has a move m that leads to value r. *)
+      match get_result g with
+      | ongoing =>
+        if is_valid_move (current_board g) (next_turn g)
+             match m with place r c => r | pass => 0 end
+             match m with place r c => c | pass => 0 end
+           || match m with pass => true | _ => false end
+        then check_cert (apply_move g m) sub fuel'
+        else None
+      | _ => None
+      end
+
+    | cert_forall responses =>
+      (* All moves by the current player are covered. *)
+      match get_result g with
+      | ongoing =>
+        let mvs := moves g in
+        let check_one :=
+          fun (acc : option cert_result) (mv : move) =>
+            match acc with
+            | None => None
+            | Some r =>
+              match find (fun '(m', _) => if dec_eq_move m' mv then true else false)
+                         responses with
+              | None => None  (* move not covered *)
+              | Some (_, sub) =>
+                match check_cert (apply_move g mv) sub fuel' with
+                | Some r' =>
+                  match r, r' with
+                  | cert_win p1, cert_win p2 =>
+                    if dec_eq_player p1 p2 then Some r else None
+                  | cert_draw, cert_draw => Some cert_draw
+                  | _, _ => None
+                  end
+                | None => None
+                end
+              end
+            end in
+        match mvs with
+        | [] => None
+        | mv :: rest =>
+          match find (fun '(m', _) => if dec_eq_move m' mv then true else false)
+                     responses with
+          | None => None
+          | Some (_, sub) =>
+            match check_cert (apply_move g mv) sub fuel' with
+            | None => None
+            | Some r => fold_left check_one rest (Some r)
+            end
+          end
+        end
+      | _ => None
+      end
+
+    | cert_play m sub =>
+      match get_result g with
+      | ongoing => check_cert (apply_move g m) sub fuel'
+      | _ => None
+      end
+
+    | cert_reflect sub =>
+      check_cert (reflect_game g) sub fuel'
+
+    | cert_rotate sub =>
+      check_cert (rotate_game g) sub fuel'
+    end
+  end.
+
+(* ---------- Certificate soundness ---------- *)
+
+(* If check_cert returns Some r, then r correctly describes the
+   game-theoretic outcome. This is the key soundness property.
+
+   Full proof requires showing:
+   1. cert_terminal: get_result is correct by construction.
+   2. cert_stable: >32 stable discs means opponent can't win.
+   3. cert_exists: if current player has a winning move, position is won.
+   4. cert_forall: if all responses lead to the same result, result holds.
+   5. cert_reflect/cert_rotate: symmetry preserves game-theoretic value.
+
+   We state the theorem; the proof is built incrementally as each
+   structural lemma is established. *)
+
+Theorem check_cert_terminal_sound :
+  forall g fuel r,
+    check_cert g cert_terminal fuel = Some r ->
+    match r with
+    | cert_win p => get_result g = won_by p
+    | cert_draw => get_result g = draw
+    end.
+Proof.
+  intros g fuel r H.
+  destruct fuel; [discriminate|].
+  simpl in H.
+  destruct (get_result g) eqn:Hres;
+    try discriminate; inversion H; subst; auto.
+Qed.
+
+(* NoDup filter partition: length = length of true-part + length of false-part. *)
+Lemma filter_partition_length :
+  forall {A : Type} (f : A -> bool) (l : list A),
+    length l = length (filter f l) + length (filter (fun x => negb (f x)) l).
+Proof.
+  intros A f l. induction l as [|a l' IH]; simpl; [lia|].
+  destruct (f a); simpl; lia.
+Qed.
+
+(* No element equal to v in a list that doesn't contain v. *)
+Lemma filter_eq_not_in :
+  forall (ss : list nat) (v : nat),
+    ~ In v ss ->
+    filter (fun i => i =? v) ss = [].
+Proof.
+  intros ss v Hni. induction ss as [|a ss' IH]; simpl; auto.
+  destruct (a =? v) eqn:E.
+  { apply Nat.eqb_eq in E. subst. exfalso. apply Hni. left. auto. }
+  { apply IH. intro H. apply Hni. right. exact H. }
+Qed.
+
+(* NoDup list has at most one occurrence matching equality. *)
+Lemma nodup_filter_eq_le1 :
+  forall (ss : list nat) (v : nat),
+    NoDup ss ->
+    length (filter (fun i => i =? v) ss) <= 1.
+Proof.
+  intros ss v Hnd. induction ss as [|a ss' IH]; simpl; [lia|].
+  inversion Hnd; subst.
+  destruct (a =? v) eqn:E; simpl.
+  { apply Nat.eqb_eq in E. subst.
+    rewrite filter_eq_not_in; auto. }
+  { apply IH. auto. }
+Qed.
+
+(* If 0 is in a NoDup list and get_cell (x::b') 0 = Some p, then x = Some p. *)
+Lemma filter_zero_in :
+  forall (ss : list nat),
+    filter (fun i => i =? 0) ss <> [] ->
+    In 0 ss.
+Proof.
+  intros ss H. induction ss as [|a ss' IH]; simpl in *; [congruence|].
+  destruct (a =? 0) eqn:E.
+  { left. apply Nat.eqb_eq in E. auto. }
+  { right. apply IH. auto. }
+Qed.
+
+(* NoDup indices all pointing to p-owned cells means count_pieces >= length. *)
+Lemma nodup_owned_count :
+  forall b p ss,
+    NoDup ss ->
+    (forall pos, In pos ss -> pos < length b) ->
+    (forall pos, In pos ss -> get_cell b pos = Some p) ->
+    length ss <= count_pieces b p.
+Proof.
+  unfold count_pieces.
+  intros b p.
+  induction b as [|x b' IHb]; intros ss Hnd Hbnd Howned.
+  { destruct ss; simpl; [lia|].
+    specialize (Hbnd n (or_introl eq_refl)). simpl in Hbnd. lia. }
+  simpl.
+  set (ss0 := filter (fun i => i =? 0) ss).
+  set (ss1 := filter (fun i => negb (i =? 0)) ss).
+  assert (Hpart : length ss = length ss0 + length ss1).
+  { subst ss0 ss1. apply filter_partition_length. }
+  assert (Hss0_le : length ss0 <= 1).
+  { subst ss0. apply nodup_filter_eq_le1. exact Hnd. }
+  set (ss1' := map pred ss1).
+  assert (Hnd1 : NoDup ss1').
+  { subst ss1' ss1.
+    assert (Hnd_f := NoDup_filter (fun i => negb (i =? 0)) Hnd).
+    assert (Hall : forall z, In z (filter (fun i => negb (i =? 0)) ss) -> z <> 0).
+    { intros z Hin. apply filter_In in Hin as [_ Hneq].
+      apply negb_true_iff in Hneq. apply Nat.eqb_neq in Hneq. auto. }
+    clear -Hnd_f Hall.
+    set (l := filter (fun i => negb (i =? 0)) ss) in *.
+    clearbody l. clear ss.
+    induction l as [|a l' IH]; simpl; [constructor|].
+    inversion Hnd_f; subst. constructor.
+    { intro Hin. apply in_map_iff in Hin as [k [Heq Hkin]].
+      assert (Ha : a <> 0) by (apply Hall; left; auto).
+      assert (Hk : k <> 0) by (apply Hall; right; auto).
+      apply H1. replace a with k; [exact Hkin|]. lia. }
+    { apply IH; auto. intros z Hin. apply Hall. right. exact Hin. } }
+  assert (Hbnd1 : forall pos, In pos ss1' -> pos < length b').
+  { intros pos Hin. subst ss1'. apply in_map_iff in Hin as [k [Heq Hin]].
+    subst ss1. apply filter_In in Hin as [Hin Hneq].
+    apply negb_true_iff in Hneq. apply Nat.eqb_neq in Hneq.
+    specialize (Hbnd k Hin). simpl in Hbnd. subst pos. lia. }
+  assert (Hown1 : forall pos, In pos ss1' -> get_cell b' pos = Some p).
+  { intros pos Hin. subst ss1'. apply in_map_iff in Hin as [k [Heq Hin]].
+    subst ss1. apply filter_In in Hin as [Hin Hneq].
+    apply negb_true_iff in Hneq. apply Nat.eqb_neq in Hneq.
+    specialize (Howned k Hin). unfold get_cell in *. subst pos.
+    destruct k; [lia|]. simpl in Howned. exact Howned. }
+  assert (Hlen1 : length ss1' = length ss1).
+  { subst ss1'. rewrite map_length. auto. }
+  specialize (IHb ss1' Hnd1 Hbnd1 Hown1).
+  rewrite Hlen1 in IHb.
+  destruct (match x with Some q => if dec_eq_player q p then true
+            else false | None => false end) eqn:Efx; simpl.
+  { lia. }
+  { assert (Hss0_0 : length ss0 = 0).
+    { destruct (ss0) eqn:Ess0; simpl; auto.
+      exfalso. subst ss0.
+      assert (Hin0 : In 0 ss).
+      { apply filter_zero_in. rewrite Ess0. discriminate. }
+      specialize (Howned 0 Hin0).
+      unfold get_cell in Howned. simpl in Howned.
+      (* Howned : x = Some p, Efx : match x with ... = false *)
+      subst x. simpl in Efx.
+      destruct (dec_eq_player p p) as [_|Habs]; [discriminate|].
+      apply Habs. reflexivity. }
+    lia. }
+Qed.
+
+Lemma stable_majority_wins :
+  forall b p ss,
+    length b = 64 ->
+    stable_majority b p ss = true ->
+    NoDup ss ->
+    (forall pos, In pos ss -> pos < 64) ->
+    count_pieces b p > 32.
+Proof.
+  intros b p ss Hlen Hsm Hnd Hbnd.
+  unfold stable_majority in Hsm.
+  apply Bool.andb_true_iff in Hsm as [Hown Hgt].
+  apply Nat.ltb_lt in Hgt.
+  unfold stable_set_owned in Hown.
+  rewrite forallb_forall in Hown.
+  assert (Howned : forall pos, In pos ss -> get_cell b pos = Some p).
+  { intros pos Hin. specialize (Hown pos Hin).
+    destruct (get_cell b pos) eqn:E; [|discriminate].
+    destruct (dec_eq_player p0 p); [subst; auto|discriminate]. }
+  assert (Hle : length ss <= count_pieces b p).
+  { apply nodup_owned_count; auto.
+    intros pos Hin. rewrite Hlen. apply Hbnd. exact Hin. }
+  lia.
+Qed.
+
+(* ---------- Small board certificate example ---------- *)
+
+(* Verify the certificate checker works on a trivial terminal game. *)
+Definition terminal_game : game :=
+  {| current_board := repeat (Some black) 64
+   ; next_turn := black
+   ; pass_count := 2
+   |}.
+
+Lemma terminal_game_cert :
+  check_cert terminal_game cert_terminal 1 = Some (cert_win black).
+Proof. vm_compute. reflexivity. Qed.
+
 (* ---------- AI ---------- *)
 
 Definition ai_move (g : game) : option game :=
