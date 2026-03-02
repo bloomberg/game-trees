@@ -318,6 +318,22 @@ Definition score (g : game) : nat :=
   | ongoing => 1
   end.
 
+(* The minimax value of tic-tac-toe is 1 (a draw).
+   This means the maximizer (X) can guarantee at least a draw,
+   and the minimizer (O) can guarantee at most a draw.
+   Combined with [eval_ab_correct], this proves the AI is unbeatable:
+   it computes exact minimax via alpha-beta on the complete game tree,
+   so it always plays optimally and never loses.
+
+   We evaluate on [complete_tree_again] (the cotree-based construction)
+   because [complete_tree] uses well-founded [Acc] recursion that
+   does not reduce under [vm_compute]. Both represent the same
+   complete game tree — [ttt_is_finite] proves the cotree stabilises
+   at depth 10. *)
+Theorem ttt_minimax_draw :
+  eval_ab players_le_ge score (fun _ => false) complete_tree_again = 1.
+Proof. vm_compute. reflexivity. Qed.
+
 (* Score children on-the-fly using alpha-beta pruning
    instead of pre-computing the entire scored tree. *)
 
