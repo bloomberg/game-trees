@@ -1872,6 +1872,16871 @@ Proof. vm_compute. reflexivity. Qed.
 Lemma test2_red_wins : red_wins test2_game test2_cert.
 Proof. exact (check_cert_sound _ _ test2_check). Qed.
 
+
+Close Scope uint63_scope.
+
+(* ---------- Monolith Symmetry ---------- *)
+
+(* Copyright 2026 Bloomberg Finance L.P. *)
+(* Distributed under the terms of the Apache 2.0 license. *)
+
+(* Symmetry infrastructure for a non-bruteforce Connect Four proof route. *)
+
+From Stdlib Require Import List.
+From Stdlib Require Import Bool.
+From Stdlib Require Import PeanoNat.
+From Stdlib Require Import Lia.
+From Stdlib Require Import Relations.Relation_Operators.
+
+Import ListNotations.
+
+Require Import GameTrees.Trees.
+
+Definition mirror_player (p : player) : player :=
+  match p with red => yellow | yellow => red end.
+
+Lemma mirror_player_involutive :
+  forall p, mirror_player (mirror_player p) = p.
+Proof. intros []; reflexivity. Qed.
+
+Definition mirror_col (c : nat) : nat :=
+  match c with
+  | 0 => 6 | 1 => 5 | 2 => 4 | 3 => 3 | 4 => 2 | 5 => 1 | 6 => 0
+  | n => n
+  end.
+
+Lemma mirror_col_involutive :
+  forall c, mirror_col (mirror_col c) = c.
+Proof.
+  intros [|[|[|[|[|[|[|[|c]]]]]]]]; reflexivity.
+Qed.
+
+Definition mirror_move (m : move) : move :=
+  match m with
+  | col0 => col6 | col1 => col5 | col2 => col4 | col3 => col3
+  | col4 => col2 | col5 => col1 | col6 => col0
+  end.
+
+Lemma mirror_move_involutive :
+  forall m, mirror_move (mirror_move m) = m.
+Proof. intros []; reflexivity. Qed.
+
+Definition mirror_board (b : board) : board :=
+  mkbd (map mirror_player (c6 b))
+       (map mirror_player (c5 b))
+       (map mirror_player (c4 b))
+       (map mirror_player (c3 b))
+       (map mirror_player (c2 b))
+       (map mirror_player (c1 b))
+       (map mirror_player (c0 b)).
+
+Lemma get_column_mirror_board :
+  forall b c,
+    get_column (mirror_board b) (mirror_col c) =
+    map mirror_player (get_column b c).
+Proof.
+  intros b c.
+  destruct c as [|c]; simpl; [reflexivity|].
+  destruct c as [|c]; simpl; [reflexivity|].
+  destruct c as [|c]; simpl; [reflexivity|].
+  destruct c as [|c]; simpl; [reflexivity|].
+  destruct c as [|c]; simpl; [reflexivity|].
+  destruct c as [|c]; simpl; [reflexivity|].
+  destruct c as [|c]; simpl; [reflexivity|].
+  reflexivity.
+Qed.
+
+Lemma get_cell_mirror_board :
+  forall b c r,
+    get_cell (mirror_board b) (mirror_col c) r =
+    option_map mirror_player (get_cell b c r).
+Proof.
+  intros b c r.
+  unfold get_cell.
+  rewrite get_column_mirror_board.
+  apply nth_error_map.
+Qed.
+
+Definition mirror_line (t : line_type) : line_type :=
+  let '(c1, r1, c2, r2, c3, r3, c4, r4) := t in
+  if Nat.eqb c1 c2 then
+    (mirror_col c1, r1,
+     mirror_col c2, r2,
+     mirror_col c3, r3,
+     mirror_col c4, r4)
+  else
+    (mirror_col c4, r4,
+     mirror_col c3, r3,
+     mirror_col c2, r2,
+     mirror_col c1, r1).
+
+Lemma line_eqb_true :
+  forall a b, line_eqb a b = true -> a = b.
+Proof.
+  intros a b H.
+  unfold line_eqb in H.
+  destruct (line_eq_dec a b); auto.
+  discriminate.
+Qed.
+
+Lemma line_eqb_refl :
+  forall a, line_eqb a a = true.
+Proof.
+  intros a.
+  unfold line_eqb.
+  destruct (line_eq_dec a a); auto.
+Qed.
+
+Definition mirror_lines_closed_b : bool :=
+  forallb (fun l => existsb (line_eqb (mirror_line l)) all_lines) all_lines.
+
+Lemma mirror_lines_closed_b_true :
+  mirror_lines_closed_b = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma all_lines_mirror_closed :
+  forall l, In l all_lines -> In (mirror_line l) all_lines.
+Proof.
+  intros l Hin.
+  pose proof mirror_lines_closed_b_true as Hclosed.
+  unfold mirror_lines_closed_b in Hclosed.
+  rewrite forallb_forall in Hclosed.
+  specialize (Hclosed l Hin).
+  apply existsb_exists in Hclosed.
+  destruct Hclosed as [x [Hin' Heq]].
+  apply line_eqb_true in Heq.
+  subst x.
+  exact Hin'.
+Qed.
+
+Definition mirror_lines_involutive_b : bool :=
+  forallb (fun l => line_eqb (mirror_line (mirror_line l)) l) all_lines.
+
+Lemma mirror_lines_involutive_b_true :
+  mirror_lines_involutive_b = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma mirror_line_involutive_on_all_lines :
+  forall l, In l all_lines -> mirror_line (mirror_line l) = l.
+Proof.
+  intros l Hin.
+  pose proof mirror_lines_involutive_b_true as H.
+  unfold mirror_lines_involutive_b in H.
+  rewrite forallb_forall in H.
+  specialize (H l Hin).
+  apply line_eqb_true in H.
+  exact H.
+Qed.
+
+Lemma option_map_mirror_player_some :
+  forall q p,
+    option_map mirror_player q = Some (mirror_player p) ->
+    q = Some p.
+Proof.
+  intros [x|] p H; simpl in H; try discriminate.
+  destruct x, p; inversion H; reflexivity.
+Qed.
+
+Lemma check_line_mirror_true_iff :
+  forall b p c1 r1 c2 r2 c3 r3 c4 r4,
+    check_line (mirror_board b) (mirror_player p)
+      (mirror_col c4) r4
+      (mirror_col c3) r3
+      (mirror_col c2) r2
+      (mirror_col c1) r1 = true <->
+    check_line b p c1 r1 c2 r2 c3 r3 c4 r4 = true.
+Proof.
+  intros b p c1 r1 c2 r2 c3 r3 c4 r4.
+  split; intro H.
+  - apply check_line_get_cell in H as (H1 & H2 & H3 & H4).
+    rewrite get_cell_mirror_board in H1.
+    rewrite get_cell_mirror_board in H2.
+    rewrite get_cell_mirror_board in H3.
+    rewrite get_cell_mirror_board in H4.
+    pose proof (option_map_mirror_player_some _ _ H1) as E4.
+    pose proof (option_map_mirror_player_some _ _ H2) as E3.
+    pose proof (option_map_mirror_player_some _ _ H3) as E2.
+    pose proof (option_map_mirror_player_some _ _ H4) as E1.
+    apply (check_line_from_cells b p c1 r1 c2 r2 c3 r3 c4 r4); assumption.
+  - apply check_line_get_cell in H as (H1 & H2 & H3 & H4).
+    apply (check_line_from_cells (mirror_board b) (mirror_player p)
+             (mirror_col c4) r4
+             (mirror_col c3) r3
+             (mirror_col c2) r2
+             (mirror_col c1) r1).
+    + rewrite get_cell_mirror_board. now rewrite H4.
+    + rewrite get_cell_mirror_board. now rewrite H3.
+    + rewrite get_cell_mirror_board. now rewrite H2.
+    + rewrite get_cell_mirror_board. now rewrite H1.
+Qed.
+
+Lemma check_line_mirror_norev_true_iff :
+  forall b p c1 r1 c2 r2 c3 r3 c4 r4,
+    check_line (mirror_board b) (mirror_player p)
+      (mirror_col c1) r1
+      (mirror_col c2) r2
+      (mirror_col c3) r3
+      (mirror_col c4) r4 = true <->
+    check_line b p c1 r1 c2 r2 c3 r3 c4 r4 = true.
+Proof.
+  intros b p c1 r1 c2 r2 c3 r3 c4 r4.
+  split; intro H.
+  - apply check_line_get_cell in H as (H1 & H2 & H3 & H4).
+    rewrite get_cell_mirror_board in H1.
+    rewrite get_cell_mirror_board in H2.
+    rewrite get_cell_mirror_board in H3.
+    rewrite get_cell_mirror_board in H4.
+    pose proof (option_map_mirror_player_some _ _ H1) as E1.
+    pose proof (option_map_mirror_player_some _ _ H2) as E2.
+    pose proof (option_map_mirror_player_some _ _ H3) as E3.
+    pose proof (option_map_mirror_player_some _ _ H4) as E4.
+    apply (check_line_from_cells b p c1 r1 c2 r2 c3 r3 c4 r4); assumption.
+  - apply check_line_get_cell in H as (H1 & H2 & H3 & H4).
+    apply (check_line_from_cells (mirror_board b) (mirror_player p)
+             (mirror_col c1) r1
+             (mirror_col c2) r2
+             (mirror_col c3) r3
+             (mirror_col c4) r4).
+    + rewrite get_cell_mirror_board. now rewrite H1.
+    + rewrite get_cell_mirror_board. now rewrite H2.
+    + rewrite get_cell_mirror_board. now rewrite H3.
+    + rewrite get_cell_mirror_board. now rewrite H4.
+Qed.
+
+Lemma check_line_mirror_line_true_iff :
+  forall b p l,
+    let '(c1, r1, c2, r2, c3, r3, c4, r4) := l in
+    check_line (mirror_board b) (mirror_player p)
+      (let '(a1, b1, a2, b2, a3, b3, a4, b4) := mirror_line l in a1) 
+      (let '(a1, b1, a2, b2, a3, b3, a4, b4) := mirror_line l in b1)
+      (let '(a1, b1, a2, b2, a3, b3, a4, b4) := mirror_line l in a2)
+      (let '(a1, b1, a2, b2, a3, b3, a4, b4) := mirror_line l in b2)
+      (let '(a1, b1, a2, b2, a3, b3, a4, b4) := mirror_line l in a3)
+      (let '(a1, b1, a2, b2, a3, b3, a4, b4) := mirror_line l in b3)
+      (let '(a1, b1, a2, b2, a3, b3, a4, b4) := mirror_line l in a4)
+      (let '(a1, b1, a2, b2, a3, b3, a4, b4) := mirror_line l in b4) = true <->
+    check_line b p c1 r1 c2 r2 c3 r3 c4 r4 = true.
+Proof.
+  intros b p [[[[[[[c1 r1] c2] r2] c3] r3] c4] r4].
+  unfold mirror_line.
+  destruct (Nat.eqb c1 c2) eqn:E; simpl.
+  - apply check_line_mirror_norev_true_iff.
+  - apply check_line_mirror_true_iff.
+Qed.
+
+Lemma map_mirror_player_involutive :
+  forall l : list player,
+    map mirror_player (map mirror_player l) = l.
+Proof.
+  intro l.
+  rewrite map_map.
+  rewrite <- map_id.
+  apply map_ext; intro x.
+  apply mirror_player_involutive.
+Qed.
+
+Lemma mirror_board_involutive :
+  forall b, mirror_board (mirror_board b) = b.
+Proof.
+  intros [c0 c1 c2 c3 c4 c5 c6].
+  unfold mirror_board; simpl.
+  repeat rewrite map_mirror_player_involutive.
+  reflexivity.
+Qed.
+
+Lemma has_won_mirror_left :
+  forall b p,
+    has_won (mirror_board b) (mirror_player p) = true ->
+    has_won b p = true.
+Proof.
+  intros b p H.
+  unfold has_won in *.
+  apply existsb_exists in H.
+  destruct H as [l [Hin Hline]].
+  destruct l as [[[[[[[c1 r1] c2] r2] c3] r3] c4] r4].
+  assert (Hin_m : In (mirror_line (c1, r1, c2, r2, c3, r3, c4, r4)) all_lines).
+  { apply all_lines_mirror_closed. exact Hin. }
+  apply existsb_exists.
+  exists (mirror_line (c1, r1, c2, r2, c3, r3, c4, r4)).
+  split; [exact Hin_m|].
+  unfold mirror_line.
+  destruct (Nat.eqb c1 c2) eqn:E; simpl.
+  - pose proof (check_line_mirror_norev_true_iff b p
+                  (mirror_col c1) r1
+                  (mirror_col c2) r2
+                  (mirror_col c3) r3
+                  (mirror_col c4) r4) as Hn.
+    apply (proj1 Hn).
+    repeat rewrite mirror_col_involutive.
+    exact Hline.
+  - pose proof (check_line_mirror_true_iff b p
+                  (mirror_col c4) r4
+                  (mirror_col c3) r3
+                  (mirror_col c2) r2
+                  (mirror_col c1) r1) as Hr.
+    apply (proj1 Hr).
+    repeat rewrite mirror_col_involutive.
+    exact Hline.
+Qed.
+
+Lemma has_won_mirror :
+  forall b p,
+    has_won (mirror_board b) (mirror_player p) = has_won b p.
+Proof.
+  intros b p.
+  destruct (has_won (mirror_board b) (mirror_player p)) eqn:Hm.
+  - pose proof (has_won_mirror_left b p Hm) as Hp.
+    rewrite Hp. reflexivity.
+  - destruct (has_won b p) eqn:Hp.
+    + pose proof (has_won_mirror_left (mirror_board b) (mirror_player p)) as Hleft.
+      rewrite mirror_board_involutive in Hleft.
+      rewrite mirror_player_involutive in Hleft.
+      specialize (Hleft Hp).
+      rewrite Hm in Hleft.
+      discriminate.
+    + reflexivity.
+Qed.
+
+Definition mirror_game (g : game) : game :=
+  {| current_board := mirror_board (current_board g)
+   ; next_turn := mirror_player (next_turn g)
+   |}.
+
+Lemma mirror_game_involutive :
+  forall g, mirror_game (mirror_game g) = g.
+Proof.
+  intros [b t].
+  unfold mirror_game; simpl.
+  rewrite mirror_board_involutive.
+  rewrite mirror_player_involutive.
+  reflexivity.
+Qed.
+
+Lemma has_won_mirror_red :
+  forall b,
+    has_won (mirror_board b) red = has_won b yellow.
+Proof.
+  intro b.
+  pose proof (has_won_mirror b yellow) as H.
+  simpl in H.
+  exact H.
+Qed.
+
+Lemma has_won_mirror_yellow :
+  forall b,
+    has_won (mirror_board b) yellow = has_won b red.
+Proof.
+  intro b.
+  pose proof (has_won_mirror b red) as H.
+  simpl in H.
+  exact H.
+Qed.
+
+Lemma total_pieces_mirror_board :
+  forall b,
+    total_pieces (mirror_board b) = total_pieces b.
+Proof.
+  intros [d0 d1 d2 d3 d4 d5 d6].
+  unfold mirror_board, total_pieces; simpl.
+  repeat rewrite length_map.
+  lia.
+Qed.
+
+Lemma get_result_ongoing_mirror :
+  forall g,
+    get_result g = ongoing ->
+    get_result (mirror_game g) = ongoing.
+Proof.
+  intros g Hongoing.
+  unfold get_result in Hongoing.
+  destruct (has_won (current_board g) red) eqn:Hr; try discriminate.
+  destruct (has_won (current_board g) yellow) eqn:Hy; try discriminate.
+  destruct (Nat.eqb (total_pieces (current_board g)) 42) eqn:Hfull; try discriminate.
+  unfold get_result.
+  unfold mirror_game.
+  simpl.
+  rewrite has_won_mirror_red.
+  rewrite has_won_mirror_yellow.
+  rewrite total_pieces_mirror_board.
+  rewrite Hy, Hr, Hfull.
+  reflexivity.
+Qed.
+
+Lemma get_result_mirror_game_no_simul :
+  forall g,
+    ~ (has_won (current_board g) red = true /\
+       has_won (current_board g) yellow = true) ->
+    get_result (mirror_game g) =
+    match get_result g with
+    | won_by red => won_by yellow
+    | won_by yellow => won_by red
+    | draw => draw
+    | ongoing => ongoing
+    end.
+Proof.
+  intros g Hnosimul.
+  unfold get_result.
+  unfold mirror_game.
+  simpl.
+  rewrite has_won_mirror_red.
+  rewrite has_won_mirror_yellow.
+  rewrite total_pieces_mirror_board.
+  destruct (has_won (current_board g) red) eqn:Hr.
+  - assert (Hy : has_won (current_board g) yellow = false).
+    { destruct (has_won (current_board g) yellow) eqn:Hy.
+      - exfalso.
+        apply Hnosimul.
+        split; reflexivity.
+      - reflexivity. }
+    rewrite Hy.
+    reflexivity.
+  - destruct (has_won (current_board g) yellow) eqn:Hy.
+    + reflexivity.
+    + destruct (Nat.eqb (total_pieces (current_board g)) 42) eqn:Hfull;
+        reflexivity.
+Qed.
+
+Lemma column_of_move_mirror_board :
+  forall b m,
+    column_of_move (mirror_move m) (mirror_board b) =
+    map mirror_player (column_of_move m b).
+Proof.
+  intros b m.
+  destruct m; reflexivity.
+Qed.
+
+Lemma valid_move_mirror :
+  forall g m,
+    valid_move g m ->
+    valid_move (mirror_game g) (mirror_move m).
+Proof.
+  intros g m Hvm.
+  inversion Hvm; subst.
+  constructor.
+  - apply get_result_ongoing_mirror.
+    exact H.
+  - unfold mirror_game.
+    simpl.
+    rewrite column_of_move_mirror_board.
+    rewrite length_map.
+    exact H0.
+Qed.
+
+Lemma apply_move_mirror_game :
+  forall g m,
+    mirror_game (apply_move g m) =
+    apply_move (mirror_game g) (mirror_move m).
+Proof.
+  intros [[d0 d1 d2 d3 d4 d5 d6] t] m.
+  destruct m; destruct t; unfold mirror_game, mirror_board, apply_move; simpl;
+    repeat rewrite map_app;
+    simpl;
+    reflexivity.
+Qed.
+
+Lemma in_moves_valid :
+  forall g m,
+    In m (moves g) ->
+    valid_move g m.
+Proof.
+  intros g m Hin.
+  pose proof (valid_moves g) as Hvs.
+  rewrite Forall_forall in Hvs.
+  apply Hvs.
+  exact Hin.
+Qed.
+
+Lemma c4_next_mirror_left :
+  forall g g',
+    In g' (c4_next g) ->
+    In (mirror_game g') (c4_next (mirror_game g)).
+Proof.
+  intros g g' Hin.
+  unfold c4_next in Hin.
+  destruct (get_result g) eqn:Hres; simpl in Hin;
+    try contradiction.
+  apply in_map_iff in Hin.
+  destruct Hin as [m [Heq Hinm]].
+  subst g'.
+  unfold c4_next.
+  rewrite get_result_ongoing_mirror by exact Hres.
+  apply in_map_iff.
+  exists (mirror_move m).
+  split.
+  - symmetry. apply apply_move_mirror_game.
+  - apply moves_complete.
+    apply valid_move_mirror.
+    apply in_moves_valid.
+    exact Hinm.
+Qed.
+
+Lemma c4_next_mirror_right :
+  forall g g',
+    In g' (c4_next (mirror_game g)) ->
+    In (mirror_game g') (c4_next g).
+Proof.
+  intros g g' Hin.
+  pose proof (c4_next_mirror_left (mirror_game g) g' Hin) as H.
+  rewrite mirror_game_involutive in H.
+  exact H.
+Qed.
+
+Lemma reachable_mirror :
+  forall g0 g,
+    reachable c4_next_intrinsic g0 g ->
+    reachable c4_next_intrinsic (mirror_game g0) (mirror_game g).
+Proof.
+  intros g0 g Hreach.
+  induction Hreach.
+  - apply rt_step.
+    apply c4_step_iff.
+    apply c4_next_mirror_left.
+    apply c4_step_iff in H.
+    exact H.
+  - apply rt_refl.
+  - eapply rt_trans; eauto.
+Qed.
+
+Lemma reachable_mirror_inv :
+  forall g0 g,
+    reachable c4_next_intrinsic (mirror_game g0) (mirror_game g) ->
+    reachable c4_next_intrinsic g0 g.
+Proof.
+  intros g0 g H.
+  pose proof (reachable_mirror (mirror_game g0) (mirror_game g) H) as Hm.
+  rewrite !mirror_game_involutive in Hm.
+  exact Hm.
+Qed.
+
+(* ---------- Monolith Unbeatable ---------- *)
+
+(* Copyright 2026 Bloomberg Finance L.P. *)
+(* Distributed under the terms of the Apache 2.0 license. *)
+
+(* A clean, book-free, depth-indexed unbeatability framework for Connect Four.
+   This file avoids certificates/opening books and reasons directly
+   about a minimax-style value and policy. *)
+
+Require Import Corelib.Classes.RelationClasses.
+From Stdlib Require Import List.
+From Stdlib Require Import PeanoNat.
+From Stdlib Require Import Lia.
+From Stdlib Require Import Program.Equality.
+From Stdlib Require Import Relations.Relation_Operators.
+
+Import ListNotations.
+
+Require Import GameTrees.Relations.
+Require Import GameTrees.Trees.
+Require Import GameTrees.Eval.
+Require Import GameTrees.AlphaBeta.
+
+Definition nat_ge (x y : nat) : Prop := Nat.le y x.
+
+#[local] Instance Reflexive_nat_ge : Reflexive nat_ge.
+Proof. unfold Reflexive, nat_ge. intro x. apply Nat.le_refl. Qed.
+
+#[local] Instance Transitive_nat_ge : Transitive nat_ge.
+Proof.
+  unfold Transitive, nat_ge.
+  intros x y z Hyx Hzy.
+  eapply Nat.le_trans; eauto.
+Qed.
+
+#[local] Instance StronglyConnected_nat_le : StronglyConnected Nat.le.
+Proof.
+  unfold StronglyConnected.
+  intros a b.
+  destruct (Nat.le_gt_cases a b) as [Hab | Hba].
+  - left; exact Hab.
+  - right; apply Nat.lt_le_incl; exact Hba.
+Qed.
+
+#[local] Instance StronglyConnected_nat_ge : StronglyConnected nat_ge.
+Proof.
+  unfold StronglyConnected, nat_ge.
+  intros a b.
+  destruct (Nat.le_gt_cases b a) as [Hba | Hab].
+  - left; exact Hba.
+  - right; apply Nat.lt_le_incl; exact Hab.
+Qed.
+
+#[local] Instance Reflexive_comparing
+  {A B : Type} (R : B -> B -> Prop) (f : A -> B)
+  (Rf : Reflexive R) : Reflexive (comparing R f).
+Proof.
+  unfold Reflexive, comparing.
+  intros x.
+  apply Rf.
+Qed.
+
+#[local] Instance Transitive_comparing
+  {A B : Type} (R : B -> B -> Prop) (f : A -> B)
+  (Tr : Transitive R) : Transitive (comparing R f).
+Proof.
+  unfold Transitive, comparing.
+  intros x y z Hxy Hyz.
+  eapply Tr; eauto.
+Qed.
+
+#[local] Instance StronglyConnected_comparing
+  {A B : Type} (R : B -> B -> Prop) (f : A -> B)
+  (SC : StronglyConnected R) : StronglyConnected (comparing R f).
+Proof.
+  unfold StronglyConnected, comparing.
+  intros x y.
+  apply SC.
+Qed.
+
+Fixpoint value_fuel (fuel : nat) (g : game) : nat :=
+  match fuel with
+  | O => score g
+  | S fuel' =>
+    match get_result g with
+    | ongoing =>
+      let scored :=
+        map (fun g' => (g', value_fuel fuel' g')) (c4_next g) in
+      match next_turn g with
+      | red =>
+        match max (comparing Nat.le snd) scored with
+        | Some (_, v) => v
+        | None => score g
+        end
+      | yellow =>
+        match max (comparing nat_ge snd) scored with
+        | Some (_, v) => v
+        | None => score g
+        end
+      end
+    | _ => score g
+    end
+  end.
+
+Fixpoint red_can_force_nonloss (fuel : nat) (g : game) : Prop :=
+  match fuel with
+  | O => get_result g <> won_by yellow
+  | S fuel' =>
+    match get_result g with
+    | won_by yellow => False
+    | won_by red => True
+    | draw => True
+    | ongoing =>
+      match next_turn g with
+      | red =>
+        exists g', In g' (c4_next g) /\ red_can_force_nonloss fuel' g'
+      | yellow =>
+        forall g', In g' (c4_next g) -> red_can_force_nonloss fuel' g'
+      end
+    end
+  end.
+
+Lemma score_ge_1_of_not_yellow_win :
+  forall g,
+    get_result g <> won_by yellow ->
+    score g >= 1.
+Proof.
+  intros g H.
+  unfold score.
+  destruct (get_result g) as [p| |] eqn:Hr; simpl; try lia.
+  destruct p.
+  - lia.
+  - exfalso.
+    apply H.
+    reflexivity.
+Qed.
+
+Theorem red_can_force_nonloss_value_ge_1 :
+  forall fuel g,
+    red_can_force_nonloss fuel g ->
+    value_fuel fuel g >= 1.
+Proof.
+  induction fuel as [|fuel IH]; intros g Hsafe.
+  - simpl in *.
+    apply score_ge_1_of_not_yellow_win.
+    exact Hsafe.
+  - simpl in *.
+    destruct (get_result g) as [p| |] eqn:Hres.
+    + destruct p.
+      * unfold score. rewrite Hres. simpl. lia.
+      * contradiction.
+    + unfold score. rewrite Hres. simpl. lia.
+    + destruct (next_turn g) eqn:Hturn.
+      * destruct Hsafe as [g' [Hin Hsafe']].
+        pose proof (IH g' Hsafe') as Hchild.
+        set (scored := map (fun g'' : game => (g'', value_fuel fuel g'')) (c4_next g)).
+        assert (Hin_pair : In (g', value_fuel fuel g') scored).
+        { unfold scored.
+          apply in_map_iff.
+          exists g'. split; auto. }
+        change 1 with (snd (g', 1)).
+        destruct (max (comparing Nat.le snd) scored) as [[gb vb]|] eqn:Hmax.
+        -- assert (Hforall :
+             Forall (fun p0 => (comparing Nat.le snd) p0 (gb, vb)) scored).
+           { pose proof
+               (@max_is_max (game * nat) (comparing Nat.le snd) _ _ _ _ _
+                 scored) as Hmaxprop.
+             rewrite Hmax in Hmaxprop.
+             exact Hmaxprop. }
+           rewrite Forall_forall in Hforall.
+           specialize (Hforall _ Hin_pair).
+           unfold comparing in Hforall.
+           simpl in Hforall.
+           assert (Hle : value_fuel fuel g' <= vb).
+           { exact Hforall. }
+           apply (Nat.le_trans 1 (value_fuel fuel g') vb).
+           { exact Hchild. }
+           { exact Hle. }
+        -- exfalso.
+           assert (scored = []).
+           { pose proof
+               (@max_is_max (game * nat) (comparing Nat.le snd) _ _ _ _ _
+                 scored) as Hmaxprop.
+             rewrite Hmax in Hmaxprop.
+             exact Hmaxprop. }
+           rewrite H in Hin_pair.
+           contradiction.
+      * set (scored := map (fun g'' : game => (g'', value_fuel fuel g'')) (c4_next g)).
+        destruct (max (comparing nat_ge snd) scored) as [[gb vb]|] eqn:Hmax.
+        -- assert (Hin_max : In (gb, vb) scored).
+           { pose proof
+               (@max_is_in (game * nat) (comparing nat_ge snd) _ _ _ _ _
+                 scored) as Hmaxin.
+             rewrite Hmax in Hmaxin.
+             exact Hmaxin. }
+           unfold scored in Hin_max.
+           apply in_map_iff in Hin_max.
+           destruct Hin_max as [gx [Heq Hin]].
+           inversion Heq; subst; clear Heq.
+           pose proof (Hsafe gb Hin) as Hsafe'.
+           pose proof (IH gb Hsafe') as Hv.
+           simpl.
+           exact Hv.
+        -- unfold score.
+           rewrite Hres.
+           simpl.
+           lia.
+Qed.
+
+Fixpoint yellow_can_force_win (fuel : nat) (g : game) : Prop :=
+  match fuel with
+  | O => get_result g = won_by yellow
+  | S fuel' =>
+    match get_result g with
+    | won_by yellow => True
+    | won_by red => False
+    | draw => False
+    | ongoing =>
+      match next_turn g with
+      | yellow =>
+        exists g', In g' (c4_next g) /\ yellow_can_force_win fuel' g'
+      | red =>
+        forall g', In g' (c4_next g) -> yellow_can_force_win fuel' g'
+      end
+    end
+  end.
+
+Fixpoint red_can_force_win (fuel : nat) (g : game) : Prop :=
+  match fuel with
+  | O => get_result g = won_by red
+  | S fuel' =>
+    match get_result g with
+    | won_by red => True
+    | won_by yellow => False
+    | draw => False
+    | ongoing =>
+      match next_turn g with
+      | red =>
+        exists g', In g' (c4_next g) /\ red_can_force_win fuel' g'
+      | yellow =>
+        forall g', In g' (c4_next g) -> red_can_force_win fuel' g'
+      end
+      end
+    end.
+
+Lemma red_can_force_win_yellow_children :
+  forall fuel g,
+    get_result g = ongoing ->
+    next_turn g = yellow ->
+    red_can_force_win (S fuel) g ->
+    forall g', In g' (c4_next g) -> red_can_force_win fuel g'.
+Proof.
+  intros fuel g Hres Hturn Hwin g' Hin.
+  simpl in Hwin.
+  rewrite Hres in Hwin.
+  rewrite Hturn in Hwin.
+  exact (Hwin g' Hin).
+Qed.
+
+Lemma yellow_can_force_win_red_children :
+  forall fuel g,
+    get_result g = ongoing ->
+    next_turn g = red ->
+    yellow_can_force_win (S fuel) g ->
+    forall g', In g' (c4_next g) -> yellow_can_force_win fuel g'.
+Proof.
+  intros fuel g Hres Hturn Hy g' Hin.
+  simpl in Hy.
+  rewrite Hres in Hy.
+  rewrite Hturn in Hy.
+  exact (Hy g' Hin).
+Qed.
+
+Lemma split_exists_or_forall :
+  forall (A : Type) (P Q : A -> Prop) (l : list A),
+    (forall x, In x l -> P x \/ Q x) ->
+    (exists x, In x l /\ P x) \/ (forall x, In x l -> Q x).
+Proof.
+  intros A P Q l.
+  induction l as [|a l IH]; intros Hall.
+  - right. intros x Hin. inversion Hin.
+  - pose proof (Hall a (or_introl eq_refl)) as Hhead.
+    destruct Hhead as [HaP | HaQ].
+    + left. exists a. split; [left; reflexivity | exact HaP].
+    + assert (Hall_tail : forall x : A, In x l -> P x \/ Q x).
+      { intros x Hin.
+        apply Hall.
+        right; exact Hin. }
+      destruct (IH Hall_tail) as [Hex | HallQ].
+      * left.
+        destruct Hex as [x [Hin HP]].
+        exists x. split; [right; exact Hin | exact HP].
+      * right.
+        intros x Hin.
+        destruct Hin as [Hx | Hin'].
+        -- subst x. exact HaQ.
+        -- apply HallQ. exact Hin'.
+Qed.
+
+Theorem red_nonloss_or_yellow_win :
+  forall fuel g,
+    red_can_force_nonloss fuel g \/ yellow_can_force_win fuel g.
+Proof.
+  induction fuel as [|fuel IH]; intros g.
+  - simpl.
+    destruct (get_result g) eqn:Hres.
+    + destruct p.
+      * left. intros H. discriminate H.
+      * right. reflexivity.
+    + left. intros H. discriminate H.
+    + left. intros H. discriminate H.
+  - simpl.
+    destruct (get_result g) as [p| |] eqn:Hres.
+    + destruct p.
+      * left. exact I.
+      * right. exact I.
+    + left. exact I.
+    + destruct (next_turn g) eqn:Hturn.
+      * assert (Hall :
+           forall x : game, In x (c4_next g) ->
+             red_can_force_nonloss fuel x \/ yellow_can_force_win fuel x).
+        { intros x Hin.
+          apply IH. }
+        destruct (split_exists_or_forall game
+                    (fun x => red_can_force_nonloss fuel x)
+                    (fun x => yellow_can_force_win fuel x)
+                    (c4_next g) Hall) as [Hex | HallQ].
+        -- left.
+           destruct Hex as [x [Hin Hx]].
+           exists x. split; assumption.
+        -- right.
+           intros x Hin.
+           apply HallQ.
+           exact Hin.
+      * assert (Hall :
+           forall x : game, In x (c4_next g) ->
+             red_can_force_nonloss fuel x \/ yellow_can_force_win fuel x).
+        { intros x Hin.
+          apply IH. }
+        assert (Hall' :
+           forall x : game, In x (c4_next g) ->
+             yellow_can_force_win fuel x \/ red_can_force_nonloss fuel x).
+        { intros x Hin.
+          specialize (Hall x Hin).
+          destruct Hall as [Hr | Hy].
+          - right. exact Hr.
+          - left. exact Hy. }
+        destruct (split_exists_or_forall game
+                    (fun x => yellow_can_force_win fuel x)
+                    (fun x => red_can_force_nonloss fuel x)
+                    (c4_next g) Hall') as [Hex | HallR].
+        -- right.
+           destruct Hex as [x [Hin Hx]].
+           exists x. split; assumption.
+        -- left.
+           intros x Hin.
+           apply HallR.
+           exact Hin.
+Qed.
+
+Theorem red_win_implies_red_nonloss :
+  forall fuel g,
+    red_can_force_win fuel g ->
+    red_can_force_nonloss fuel g.
+Proof.
+  induction fuel as [|fuel IH]; intros g Hred.
+  - simpl in *.
+    rewrite Hred.
+    intros Hbad.
+    discriminate Hbad.
+  - simpl in *.
+    destruct (get_result g) as [p| |] eqn:Hres.
+    + destruct p.
+      * exact I.
+      * contradiction.
+    + contradiction.
+    + destruct (next_turn g) eqn:Hturn.
+      * destruct Hred as [g' [Hin Hred']].
+        exists g'. split; [exact Hin|].
+        apply IH.
+        exact Hred'.
+      * intros g' Hin.
+        apply IH.
+        apply Hred.
+        exact Hin.
+Qed.
+
+Theorem red_win_not_yellow_win :
+  forall fuel g,
+    red_can_force_win fuel g ->
+    ~ yellow_can_force_win fuel g.
+Proof.
+  induction fuel as [|fuel IH]; intros g Hred Hy.
+  - simpl in *.
+    rewrite Hred in Hy.
+    discriminate.
+  - simpl in *.
+    destruct (get_result g) as [p| |] eqn:Hres.
+    + destruct p.
+      * exact Hy.
+      * exact Hred.
+    + exact Hred.
+    + destruct (next_turn g) eqn:Hturn.
+      * destruct Hred as [g' [Hin Hred']].
+        specialize (Hy g' Hin).
+        eapply IH; eauto.
+      * destruct Hy as [g' [Hin Hy']].
+        specialize (Hred g' Hin).
+        eapply IH; eauto.
+Qed.
+
+Theorem yellow_win_not_red_win :
+  forall fuel g,
+    yellow_can_force_win fuel g ->
+    ~ red_can_force_win fuel g.
+Proof.
+  intros fuel g Hy Hred.
+  eapply red_win_not_yellow_win; eauto.
+Qed.
+
+Theorem not_both_force_win :
+  forall fuel g,
+    ~ (red_can_force_win fuel g /\ yellow_can_force_win fuel g).
+Proof.
+  intros fuel g [Hred Hy].
+  eapply red_win_not_yellow_win; eauto.
+Qed.
+
+Lemma reachable_child :
+  forall g g',
+    reachable c4_next_intrinsic c4_init g ->
+    In g' (c4_next g) ->
+    reachable c4_next_intrinsic c4_init g'.
+Proof.
+  intros g g' Hreach Hin.
+  eapply rt_trans.
+  - exact Hreach.
+  - apply rt_step.
+    apply c4_step_iff.
+    exact Hin.
+Qed.
+
+Lemma reachable_child_from :
+  forall g0 g g',
+    reachable c4_next_intrinsic g0 g ->
+    In g' (c4_next g) ->
+    reachable c4_next_intrinsic g0 g'.
+Proof.
+  intros g0 g g' Hreach Hin.
+  eapply rt_trans.
+  - exact Hreach.
+  - apply rt_step.
+    apply c4_step_iff.
+    exact Hin.
+Qed.
+
+Lemma no_simul_from_start :
+  forall g0 g,
+    reachable c4_next_intrinsic g0 g ->
+    (has_won (current_board g0) red = false \/
+     has_won (current_board g0) yellow = false) ->
+    ~ (has_won (current_board g) red = true /\
+       has_won (current_board g) yellow = true).
+Proof.
+  intros g0 g Hreach Hinit.
+  pose proof (reachable_preserves_no_simul g0 g Hreach Hinit) as Hnos.
+  intros [Hr Hy].
+  destruct Hnos as [Hrf | Hyf]; congruence.
+Qed.
+
+Theorem yellow_win_mirror_reachable_red_win_from :
+  forall fuel g0 g,
+    reachable c4_next_intrinsic g0 g ->
+    (has_won (current_board g0) red = false \/
+     has_won (current_board g0) yellow = false) ->
+    yellow_can_force_win fuel g ->
+    red_can_force_win fuel (mirror_game g).
+Proof.
+  induction fuel as [|fuel IH]; intros g0 g Hreach Hinit Hy.
+  - simpl in *.
+    pose proof (no_simul_from_start g0 g Hreach Hinit) as Hnosimul.
+    pose proof (get_result_mirror_game_no_simul g Hnosimul) as Hmir.
+    rewrite Hy in Hmir.
+    simpl in Hmir.
+    exact Hmir.
+  - simpl in *.
+    destruct (get_result g) as [p| |] eqn:Hres.
+    + destruct p.
+      * contradiction.
+      * pose proof (no_simul_from_start g0 g Hreach Hinit) as Hnosimul.
+        pose proof (get_result_mirror_game_no_simul g Hnosimul) as Hmir.
+        rewrite Hres in Hmir.
+        simpl in Hmir.
+        rewrite Hmir.
+        exact I.
+    + contradiction.
+    + assert (Hresm : get_result (mirror_game g) = ongoing).
+      { apply get_result_ongoing_mirror.
+        exact Hres. }
+      rewrite Hresm.
+      destruct (next_turn g) eqn:Hturn.
+      * intros h Hinh.
+        pose proof (c4_next_mirror_right g h Hinh) as Hin_pre.
+        specialize (Hy (mirror_game h) Hin_pre).
+        specialize (IH g0 (mirror_game h)).
+        assert (Hreach_pre : reachable c4_next_intrinsic g0 (mirror_game h)).
+        { eapply reachable_child_from; eauto. }
+        specialize (IH Hreach_pre Hinit Hy).
+        rewrite mirror_game_involutive in IH.
+        exact IH.
+      * destruct Hy as [g' [Hin Hy']].
+        exists (mirror_game g').
+        split.
+        -- apply c4_next_mirror_left.
+           exact Hin.
+        -- eapply (IH g0 g').
+           ++ eapply reachable_child_from; eauto.
+           ++ exact Hinit.
+           ++ exact Hy'.
+Qed.
+
+Theorem red_win_mirror_reachable_yellow_win_from :
+  forall fuel g0 g,
+    reachable c4_next_intrinsic g0 g ->
+    (has_won (current_board g0) red = false \/
+     has_won (current_board g0) yellow = false) ->
+    red_can_force_win fuel g ->
+    yellow_can_force_win fuel (mirror_game g).
+Proof.
+  induction fuel as [|fuel IH]; intros g0 g Hreach Hinit Hred.
+  - simpl in *.
+    pose proof (no_simul_from_start g0 g Hreach Hinit) as Hnosimul.
+    pose proof (get_result_mirror_game_no_simul g Hnosimul) as Hmir.
+    rewrite Hred in Hmir.
+    simpl in Hmir.
+    exact Hmir.
+  - simpl in *.
+    destruct (get_result g) as [p| |] eqn:Hres.
+    + destruct p.
+      * pose proof (no_simul_from_start g0 g Hreach Hinit) as Hnosimul.
+        pose proof (get_result_mirror_game_no_simul g Hnosimul) as Hmir.
+        rewrite Hres in Hmir.
+        simpl in Hmir.
+        rewrite Hmir.
+        exact I.
+      * contradiction.
+    + contradiction.
+    + assert (Hresm : get_result (mirror_game g) = ongoing).
+      { apply get_result_ongoing_mirror.
+        exact Hres. }
+      rewrite Hresm.
+      destruct (next_turn g) eqn:Hturn.
+      * destruct Hred as [g' [Hin Hred']].
+        exists (mirror_game g').
+        split.
+        -- apply c4_next_mirror_left.
+           exact Hin.
+        -- eapply (IH g0 g').
+           ++ eapply reachable_child_from; eauto.
+           ++ exact Hinit.
+           ++ exact Hred'.
+      * intros h Hinh.
+        pose proof (c4_next_mirror_right g h Hinh) as Hin_pre.
+        specialize (Hred (mirror_game h) Hin_pre).
+        specialize (IH g0 (mirror_game h)).
+        assert (Hreach_pre : reachable c4_next_intrinsic g0 (mirror_game h)).
+        { eapply reachable_child_from; eauto. }
+        specialize (IH Hreach_pre Hinit Hred).
+        rewrite mirror_game_involutive in IH.
+        exact IH.
+Qed.
+
+Theorem yellow_win_mirror_reachable_red_win :
+  forall fuel g,
+    reachable c4_next_intrinsic c4_init g ->
+    yellow_can_force_win fuel g ->
+    red_can_force_win fuel (mirror_game g).
+Proof.
+  intros fuel g Hreach Hy.
+  eapply yellow_win_mirror_reachable_red_win_from.
+  - exact Hreach.
+  - left. exact has_won_init_red.
+  - exact Hy.
+Qed.
+
+Theorem red_win_mirror_reachable_yellow_win :
+  forall fuel g,
+    reachable c4_next_intrinsic c4_init g ->
+    red_can_force_win fuel g ->
+    yellow_can_force_win fuel (mirror_game g).
+Proof.
+  intros fuel g Hreach Hred.
+  eapply red_win_mirror_reachable_yellow_win_from.
+  - exact Hreach.
+  - left. exact has_won_init_red.
+  - exact Hred.
+Qed.
+
+Corollary mirror_win_equiv_reachable :
+  forall fuel g,
+    reachable c4_next_intrinsic c4_init g ->
+    yellow_can_force_win fuel g <-> red_can_force_win fuel (mirror_game g).
+Proof.
+  intros fuel g Hreach.
+  split.
+  - intro Hy.
+    eapply yellow_win_mirror_reachable_red_win; eauto.
+  - intro Hred.
+    pose proof (reachable_mirror c4_init g Hreach) as Hreachm.
+    pose proof
+      (red_win_mirror_reachable_yellow_win_from fuel (mirror_game c4_init) (mirror_game g)
+         Hreachm (or_introl has_won_init_red) Hred)
+      as Hy.
+    rewrite mirror_game_involutive in Hy.
+    exact Hy.
+Qed.
+
+Definition tempo_monotone_red_win : Prop :=
+  forall fuel b,
+    red_can_force_win fuel
+      {| current_board := b; next_turn := yellow |} ->
+    red_can_force_win fuel
+      {| current_board := b; next_turn := red |}.
+
+Lemma get_result_turn_irrelevant :
+  forall b t1 t2,
+    get_result {| current_board := b; next_turn := t1 |} =
+    get_result {| current_board := b; next_turn := t2 |}.
+Proof.
+  intros b t1 t2.
+  reflexivity.
+Qed.
+
+Lemma tempo_monotone_red_win_ongoing_suffices :
+  (forall fuel b,
+    get_result {| current_board := b; next_turn := yellow |} = ongoing ->
+    red_can_force_win fuel
+      {| current_board := b; next_turn := yellow |} ->
+    red_can_force_win fuel
+      {| current_board := b; next_turn := red |}) ->
+  tempo_monotone_red_win.
+Proof.
+  intros Hongo fuel b Hwin.
+  destruct (get_result {| current_board := b; next_turn := yellow |}) as [p| |] eqn:Hres.
+  - destruct p.
+    + destruct fuel as [|fuel'].
+      * simpl in Hwin.
+        simpl.
+        rewrite (get_result_turn_irrelevant b red yellow).
+        exact Hwin.
+      * simpl.
+        rewrite (get_result_turn_irrelevant b red yellow).
+        rewrite Hres.
+        exact I.
+    + destruct fuel as [|fuel'].
+      * simpl in Hwin.
+        rewrite Hres in Hwin.
+        discriminate.
+      * simpl in Hwin.
+        rewrite Hres in Hwin.
+        contradiction.
+  - destruct fuel as [|fuel'].
+    + simpl in Hwin.
+      rewrite Hres in Hwin.
+      discriminate.
+    + simpl in Hwin.
+      rewrite Hres in Hwin.
+      contradiction.
+  - apply Hongo; assumption.
+Qed.
+
+Lemma reachable_c4_init_refl :
+  reachable c4_next_intrinsic c4_init c4_init.
+Proof.
+  apply rt_refl.
+Qed.
+
+Definition c4_init_mirror : game := mirror_game c4_init.
+
+Lemma c4_init_mirror_shape :
+  c4_init_mirror =
+  {| current_board := mkbd [] [] [] [] [] [] []
+   ; next_turn := yellow |}.
+Proof.
+  reflexivity.
+Qed.
+
+Lemma get_result_c4_init_ongoing :
+  get_result c4_init = ongoing.
+Proof.
+  unfold c4_init, get_result.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma get_result_c4_init_mirror_ongoing :
+  get_result c4_init_mirror = ongoing.
+Proof.
+  rewrite c4_init_mirror_shape.
+  rewrite (get_result_turn_irrelevant (mkbd [] [] [] [] [] [] []) yellow red).
+  unfold c4_init.
+  exact get_result_c4_init_ongoing.
+Qed.
+
+Lemma in_c4_next_c4_init_mirror_col0 :
+  In (apply_move c4_init_mirror col0) (c4_next c4_init_mirror).
+Proof.
+  unfold c4_next.
+  rewrite get_result_c4_init_mirror_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact get_result_c4_init_mirror_ongoing.
+  - rewrite c4_init_mirror_shape.
+    simpl.
+    lia.
+Qed.
+
+Lemma in_c4_next_c4_init_col6 :
+  In (apply_move c4_init col6) (c4_next c4_init).
+Proof.
+  unfold c4_next.
+  rewrite get_result_c4_init_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact get_result_c4_init_ongoing.
+  - unfold c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma in_c4_next_c4_init_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move c4_init m) (c4_next c4_init).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite get_result_c4_init_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact get_result_c4_init_ongoing.
+  - unfold c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Theorem no_yellow_root_win_if_red_has_winning_opening :
+  forall m,
+    In m all_moves ->
+    red_can_force_win 41 (apply_move c4_init m) ->
+    ~ yellow_can_force_win 42 c4_init.
+Proof.
+  intros m Hinm Hredm Hy.
+  assert (Hturn : next_turn c4_init = red).
+  { unfold c4_init. reflexivity. }
+  pose proof
+    (yellow_can_force_win_red_children 41 c4_init
+      get_result_c4_init_ongoing Hturn Hy
+      (apply_move c4_init m)
+      (in_c4_next_c4_init_of_all_moves m Hinm)) as Hym.
+  apply (not_both_force_win 41 (apply_move c4_init m)).
+  split; assumption.
+Qed.
+
+Corollary yellow_root_win_implies_red_mirror_win :
+  yellow_can_force_win 42 c4_init ->
+  red_can_force_win 42 c4_init_mirror.
+Proof.
+  intro Hy.
+  unfold c4_init_mirror.
+  eapply yellow_win_mirror_reachable_red_win.
+  - apply reachable_c4_init_refl.
+  - exact Hy.
+Qed.
+
+Theorem no_yellow_root_win_if_tempo_monotone :
+  tempo_monotone_red_win ->
+  ~ yellow_can_force_win 42 c4_init.
+Proof.
+  intros Htempo Hy.
+  pose proof (yellow_root_win_implies_red_mirror_win Hy) as Hredm.
+  specialize (Htempo 42 (mkbd [] [] [] [] [] [] [])).
+  assert (Hredm_empty :
+    red_can_force_win 42
+      {| current_board := mkbd [] [] [] [] [] [] []
+       ; next_turn := yellow |}).
+  { exact (eq_ind_r (fun g => red_can_force_win 42 g) Hredm
+             (eq_sym c4_init_mirror_shape)). }
+  assert (Hred_root : red_can_force_win 42 c4_init).
+  { apply Htempo.
+    exact Hredm_empty. }
+  apply (not_both_force_win 42 c4_init).
+  split; assumption.
+Qed.
+
+Theorem red_nonloss_not_yellow_win :
+  forall fuel g,
+    red_can_force_nonloss fuel g ->
+    ~ yellow_can_force_win fuel g.
+Proof.
+  induction fuel as [|fuel IH]; intros g Hred Hy.
+  - simpl in *.
+    apply Hred.
+    exact Hy.
+  - simpl in *.
+    destruct (get_result g) as [p| |] eqn:Hres.
+    + destruct p.
+      * exact Hy.
+      * exact Hred.
+    + exact Hy.
+    + destruct (next_turn g) eqn:Hturn.
+      * destruct Hred as [g' [Hin Hred']].
+        specialize (Hy g' Hin).
+        eapply IH; eauto.
+      * destruct Hy as [g' [Hin Hy']].
+        specialize (Hred g' Hin).
+        eapply IH; eauto.
+Qed.
+
+Theorem red_nonloss_of_not_yellow_win :
+  forall fuel g,
+    ~ yellow_can_force_win fuel g ->
+    red_can_force_nonloss fuel g.
+Proof.
+  intros fuel g Hnot.
+  destruct (red_nonloss_or_yellow_win fuel g) as [Hred | Hy].
+  - exact Hred.
+  - exfalso.
+    apply Hnot.
+    exact Hy.
+Qed.
+
+Theorem root_nonloss_value_ge_1_if_not_yellow_win :
+  ~ yellow_can_force_win 42 c4_init ->
+  value_fuel 42 c4_init >= 1.
+Proof.
+  intros Hnot.
+  apply red_can_force_nonloss_value_ge_1.
+  apply red_nonloss_of_not_yellow_win.
+  exact Hnot.
+Qed.
+
+Theorem no_yellow_root_win_if_red_has_nonlosing_opening :
+  forall m,
+    In m all_moves ->
+    red_can_force_nonloss 41 (apply_move c4_init m) ->
+    ~ yellow_can_force_win 42 c4_init.
+Proof.
+  intros m Hinm Hsafe Hy.
+  assert (Hturn : next_turn c4_init = red).
+  { unfold c4_init. reflexivity. }
+  pose proof
+    (yellow_can_force_win_red_children 41 c4_init
+      get_result_c4_init_ongoing Hturn Hy
+      (apply_move c4_init m)
+      (in_c4_next_c4_init_of_all_moves m Hinm)) as Hym.
+  exact (red_nonloss_not_yellow_win 41 (apply_move c4_init m) Hsafe Hym).
+Qed.
+
+Theorem root_nonloss_value_ge_1_if_red_has_winning_opening :
+  forall m,
+    In m all_moves ->
+    red_can_force_win 41 (apply_move c4_init m) ->
+    value_fuel 42 c4_init >= 1.
+Proof.
+  intros m Hinm Hredm.
+  apply root_nonloss_value_ge_1_if_not_yellow_win.
+  eapply no_yellow_root_win_if_red_has_winning_opening; eauto.
+Qed.
+
+Theorem root_nonloss_value_ge_1_if_red_has_nonlosing_opening :
+  forall m,
+    In m all_moves ->
+    red_can_force_nonloss 41 (apply_move c4_init m) ->
+    value_fuel 42 c4_init >= 1.
+Proof.
+  intros m Hinm Hsafe.
+  apply root_nonloss_value_ge_1_if_not_yellow_win.
+  eapply no_yellow_root_win_if_red_has_nonlosing_opening; eauto.
+Qed.
+
+
+Definition opening_col6_target : Prop :=
+  red_can_force_win 41 (apply_move c4_init col6).
+
+Definition opening_col6_nonloss_target : Prop :=
+  red_can_force_nonloss 41 (apply_move c4_init col6).
+
+Lemma opening_col6_target_implies_nonloss_target :
+  opening_col6_target ->
+  opening_col6_nonloss_target.
+Proof.
+  intros H.
+  unfold opening_col6_target, opening_col6_nonloss_target.
+  apply red_win_implies_red_nonloss.
+  exact H.
+Qed.
+
+Theorem root_nonloss_value_ge_1_if_opening_col6_nonloss_target :
+  opening_col6_nonloss_target ->
+  value_fuel 42 c4_init >= 1.
+Proof.
+  intros Hnl.
+  apply (root_nonloss_value_ge_1_if_red_has_nonlosing_opening col6).
+  - simpl. tauto.
+  - exact Hnl.
+Qed.
+
+Definition opening_col6_state : game :=
+  apply_move c4_init col6.
+
+Lemma red_can_force_win_unfold_ongoing_yellow :
+  forall fuel g,
+    get_result g = ongoing ->
+    next_turn g = yellow ->
+    (red_can_force_win (S fuel) g <->
+     forall g', In g' (c4_next g) -> red_can_force_win fuel g').
+Proof.
+  intros fuel g Hres Hturn.
+  simpl.
+  rewrite Hres.
+  rewrite Hturn.
+  tauto.
+Qed.
+
+Lemma red_can_force_win_unfold_ongoing_red :
+  forall fuel g,
+    get_result g = ongoing ->
+    next_turn g = red ->
+    (red_can_force_win (S fuel) g <->
+     exists g', In g' (c4_next g) /\ red_can_force_win fuel g').
+Proof.
+  intros fuel g Hres Hturn.
+  simpl.
+  rewrite Hres.
+  rewrite Hturn.
+  tauto.
+Qed.
+
+Definition red_col6_vertical_threat_0123 : threat :=
+  {| threat_player := red
+   ; threat_line := (6, 0, 6, 1, 6, 2, 6, 3)
+   ; threat_empty := (6, 3)
+  |}.
+
+Lemma has_threat_red_col6_vertical_0123_if_cells :
+  forall b,
+    get_cell b 6 0 = Some red ->
+    get_cell b 6 1 = Some red ->
+    get_cell b 6 2 = Some red ->
+    get_cell b 6 3 = None ->
+    has_threat b red_col6_vertical_threat_0123.
+Proof.
+  intros b H60 H61 H62 H63.
+  unfold has_threat, red_col6_vertical_threat_0123, line_cells.
+  repeat split.
+  - right. left. repeat split; simpl; lia.
+  - exact H63.
+  - simpl. tauto.
+  - constructor.
+    + right. exact H60.
+    + constructor.
+      * right. exact H61.
+      * constructor.
+        { right. exact H62. }
+        constructor.
+        { left. reflexivity. }
+        constructor.
+Qed.
+
+Lemma live_threat_red_col6_vertical_0123_if_cells :
+  forall b,
+    get_cell b 6 0 = Some red ->
+    get_cell b 6 1 = Some red ->
+    get_cell b 6 2 = Some red ->
+    get_cell b 6 3 = None ->
+    live_threat b red_col6_vertical_threat_0123.
+Proof.
+  intros b H60 H61 H62 H63.
+  split.
+  - apply has_threat_red_col6_vertical_0123_if_cells; assumption.
+  - right.
+    exists red.
+    exact H62.
+Qed.
+
+Lemma red_can_force_win_if_col6_vertical_threat :
+  forall fuel g,
+    get_result g = ongoing ->
+    next_turn g = red ->
+    get_cell (current_board g) 6 0 = Some red ->
+    get_cell (current_board g) 6 1 = Some red ->
+    get_cell (current_board g) 6 2 = Some red ->
+    get_cell (current_board g) 6 3 = None ->
+    red_can_force_win (S fuel) g.
+Proof.
+  intros fuel g Hres Hturn H60 H61 H62 H63.
+  assert (Hlive : live_threat (current_board g) red_col6_vertical_threat_0123).
+  { apply live_threat_red_col6_vertical_0123_if_cells; assumption. }
+  assert (Htp : threat_player red_col6_vertical_threat_0123 = next_turn g).
+  { unfold red_col6_vertical_threat_0123. simpl. rewrite Hturn. reflexivity. }
+  destruct (live_threat_wins g red_col6_vertical_threat_0123 Hlive Htp Hres)
+    as [m [Hvm Hwin]].
+  apply (proj2 (red_can_force_win_unfold_ongoing_red fuel g Hres Hturn)).
+  exists (apply_move g m).
+  split.
+  - unfold c4_next.
+    rewrite Hres.
+    apply in_map.
+    apply moves_complete.
+    exact Hvm.
+  - destruct fuel as [|fuel'].
+    + simpl.
+      exact Hwin.
+    + simpl.
+      rewrite Hwin.
+      exact I.
+Qed.
+
+Lemma red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat :
+  forall g m,
+    nat_of_move m <> 6 ->
+    get_result (apply_move g m) = ongoing ->
+    next_turn (apply_move g m) = red ->
+    get_cell (current_board g) 6 0 = Some red ->
+    get_cell (current_board g) 6 1 = Some red ->
+    get_cell (current_board g) 6 2 = Some red ->
+    get_cell (current_board g) 6 3 = None ->
+    red_can_force_win 36 (apply_move g m).
+Proof.
+  intros g m Hneq Hres Hturn H60 H61 H62 H63.
+  apply (red_can_force_win_if_col6_vertical_threat 35 (apply_move g m));
+    try assumption.
+  - rewrite get_cell_apply_move_other_col; [exact H60|lia].
+  - rewrite get_cell_apply_move_other_col; [exact H61|lia].
+  - rewrite get_cell_apply_move_other_col; [exact H62|lia].
+  - rewrite get_cell_apply_move_other_col; [exact H63|lia].
+Qed.
+
+Definition red_col6_vertical_threat_2345 : threat :=
+  {| threat_player := red
+   ; threat_line := (6, 2, 6, 3, 6, 4, 6, 5)
+   ; threat_empty := (6, 5)
+  |}.
+
+Lemma has_threat_red_col6_vertical_2345_if_cells :
+  forall b,
+    get_cell b 6 2 = Some red ->
+    get_cell b 6 3 = Some red ->
+    get_cell b 6 4 = Some red ->
+    get_cell b 6 5 = None ->
+    has_threat b red_col6_vertical_threat_2345.
+Proof.
+  intros b H62 H63 H64 H65.
+  unfold has_threat, red_col6_vertical_threat_2345, line_cells.
+  repeat split.
+  - right. left. repeat split; simpl; lia.
+  - exact H65.
+  - simpl. tauto.
+  - constructor.
+    + right. exact H62.
+    + constructor.
+      * right. exact H63.
+      * constructor.
+        { right. exact H64. }
+        constructor.
+        { left. reflexivity. }
+        constructor.
+Qed.
+
+Lemma live_threat_red_col6_vertical_2345_if_cells :
+  forall b,
+    get_cell b 6 2 = Some red ->
+    get_cell b 6 3 = Some red ->
+    get_cell b 6 4 = Some red ->
+    get_cell b 6 5 = None ->
+    live_threat b red_col6_vertical_threat_2345.
+Proof.
+  intros b H62 H63 H64 H65.
+  split.
+  - apply has_threat_red_col6_vertical_2345_if_cells; assumption.
+  - right.
+    exists red.
+    exact H64.
+Qed.
+
+Lemma red_can_force_win_if_col6_vertical_threat_2345 :
+  forall fuel g,
+    get_result g = ongoing ->
+    next_turn g = red ->
+    get_cell (current_board g) 6 2 = Some red ->
+    get_cell (current_board g) 6 3 = Some red ->
+    get_cell (current_board g) 6 4 = Some red ->
+    get_cell (current_board g) 6 5 = None ->
+    red_can_force_win (S fuel) g.
+Proof.
+  intros fuel g Hres Hturn H62 H63 H64 H65.
+  assert (Hlive : live_threat (current_board g) red_col6_vertical_threat_2345).
+  { apply live_threat_red_col6_vertical_2345_if_cells; assumption. }
+  assert (Htp : threat_player red_col6_vertical_threat_2345 = next_turn g).
+  { unfold red_col6_vertical_threat_2345. simpl. rewrite Hturn. reflexivity. }
+  destruct (live_threat_wins g red_col6_vertical_threat_2345 Hlive Htp Hres)
+    as [m [Hvm Hwin]].
+  apply (proj2 (red_can_force_win_unfold_ongoing_red fuel g Hres Hturn)).
+  exists (apply_move g m).
+  split.
+  - unfold c4_next.
+    rewrite Hres.
+    apply in_map.
+    apply moves_complete.
+    exact Hvm.
+  - destruct fuel as [|fuel'].
+    + simpl.
+      exact Hwin.
+    + simpl.
+      rewrite Hwin.
+      exact I.
+Qed.
+
+Lemma in_c4_next_if_valid_move :
+  forall g m,
+    get_result g = ongoing ->
+    valid_move g m ->
+    In (apply_move g m) (c4_next g).
+Proof.
+  intros g m Hres Hvm.
+  unfold c4_next.
+  rewrite Hres.
+  apply in_map.
+  apply moves_complete.
+  exact Hvm.
+Qed.
+
+Lemma red_can_force_win_36_if_col6_upper_setup :
+  forall g,
+    get_result g = ongoing ->
+    next_turn g = red ->
+    get_cell (current_board g) 6 5 = None ->
+    red_can_force_win 35 (apply_move g col6) ->
+    red_can_force_win 36 g.
+Proof.
+  intros g Hres Hturn H65 Hchild.
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 35 g Hres Hturn)).
+  exists (apply_move g col6).
+  split.
+  - assert (Hvm : valid_move g col6).
+    { apply valid_move_intro.
+      - exact Hres.
+      - apply get_cell_None_length in H65.
+        assert (Hle5 : length (column_of_move col6 (current_board g)) <= 5).
+        { rewrite <- (get_column_nat_of_move (current_board g) col6).
+          exact H65. }
+        lia. }
+    apply in_c4_next_if_valid_move; assumption.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_turn_yellow :
+  next_turn opening_col6_state = yellow.
+Proof.
+  unfold opening_col6_state, c4_init.
+  simpl.
+  unfold apply_move.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_result_ongoing :
+  get_result opening_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_target_unfold :
+  opening_col6_target <->
+  forall g,
+    In g (c4_next opening_col6_state) ->
+    red_can_force_win 40 g.
+Proof.
+  unfold opening_col6_target, opening_col6_state.
+  change (red_can_force_win (S 40) (apply_move c4_init col6) <->
+    forall g, In g (c4_next (apply_move c4_init col6)) -> red_can_force_win 40 g).
+  apply red_can_force_win_unfold_ongoing_yellow.
+  - apply opening_col6_result_ongoing.
+  - apply opening_col6_turn_yellow.
+Qed.
+
+Lemma in_c4_next_opening_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_state m) (c4_next opening_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_result_ongoing.
+  - unfold opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_target_move_form :
+  opening_col6_target <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 40 (apply_move opening_col6_state m).
+Proof.
+  split.
+  - intros Htarget m Hinm.
+    apply (proj1 opening_col6_target_unfold Htarget).
+    apply in_c4_next_opening_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 opening_col6_target_unfold).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_subgoals : Prop :=
+  red_can_force_win 40 (apply_move opening_col6_state col0) /\
+  red_can_force_win 40 (apply_move opening_col6_state col1) /\
+  red_can_force_win 40 (apply_move opening_col6_state col2) /\
+  red_can_force_win 40 (apply_move opening_col6_state col3) /\
+  red_can_force_win 40 (apply_move opening_col6_state col4) /\
+  red_can_force_win 40 (apply_move opening_col6_state col5) /\
+  red_can_force_win 40 (apply_move opening_col6_state col6).
+
+Lemma opening_col6_target_implies_reply_subgoals :
+  opening_col6_target ->
+  opening_col6_reply_subgoals.
+Proof.
+  intro Htarget.
+  pose proof (proj1 opening_col6_target_move_form Htarget) as Hm.
+  repeat split;
+    apply Hm;
+    simpl; tauto.
+Qed.
+
+Lemma opening_col6_target_if_reply_subgoals :
+  opening_col6_reply_subgoals ->
+  opening_col6_target.
+Proof.
+  intro Hsubs.
+  apply (proj2 opening_col6_target_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Definition opening_col6_reply_col0_state : game :=
+  apply_move opening_col6_state col0.
+
+Definition opening_col6_reply_col0_goal : Prop :=
+  red_can_force_win 40 opening_col6_reply_col0_state.
+
+Lemma opening_col6_reply_subgoals_if_col0_and_rest_raw :
+  red_can_force_win 40 (apply_move opening_col6_state col0) ->
+  red_can_force_win 40 (apply_move opening_col6_state col1) ->
+  red_can_force_win 40 (apply_move opening_col6_state col2) ->
+  red_can_force_win 40 (apply_move opening_col6_state col3) ->
+  red_can_force_win 40 (apply_move opening_col6_state col4) ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_reply_subgoals.
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6.
+  split.
+  - exact H0.
+  - split.
+    + exact H1.
+    + split.
+      * exact H2.
+      * split.
+        -- exact H3.
+        -- split.
+           ++ exact H4.
+           ++ split.
+              ** exact H5.
+              ** exact H6.
+Qed.
+
+Lemma opening_col6_reply_col0_turn_red :
+  next_turn opening_col6_reply_col0_state = red.
+Proof.
+  unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_result_ongoing :
+  get_result opening_col6_reply_col0_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_goal_unfold :
+  opening_col6_reply_col0_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col0_state) /\
+    red_can_force_win 39 g.
+Proof.
+  unfold opening_col6_reply_col0_goal.
+  change 40 with (S 39).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col0_result_ongoing.
+  - apply opening_col6_reply_col0_turn_red.
+Qed.
+
+Definition opening_col6_reply_col0_red_col6_state : game :=
+  apply_move opening_col6_reply_col0_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col0_red_col6 :
+  In opening_col6_reply_col0_red_col6_state
+     (c4_next opening_col6_reply_col0_state).
+Proof.
+  unfold opening_col6_reply_col0_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col0_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col0_result_ongoing.
+  - unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col0_goal_if_red_col6_child :
+  red_can_force_win 39 opening_col6_reply_col0_red_col6_state ->
+  opening_col6_reply_col0_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col0_goal_unfold).
+  exists opening_col6_reply_col0_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col0_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col0_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col0_red_col6_state.
+  unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_result_ongoing :
+  get_result opening_col6_reply_col0_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col0_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col0_red_col6_state m)
+       (c4_next opening_col6_reply_col0_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col0_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col0_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col0_red_col6_state.
+    unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_move_form :
+  red_can_force_win 39 opening_col6_reply_col0_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 38
+      (apply_move opening_col6_reply_col0_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 38
+                    opening_col6_reply_col0_red_col6_state
+                    opening_col6_reply_col0_red_col6_result_ongoing
+                    opening_col6_reply_col0_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col0_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 38
+                    opening_col6_reply_col0_red_col6_state
+                    opening_col6_reply_col0_red_col6_result_ongoing
+                    opening_col6_reply_col0_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col0_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col0_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col0_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 38 (apply_move opening_col6_reply_col0_red_col6_state col0) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col0_red_col6_state col1) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col0_red_col6_state col2) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col0_red_col6_state col3) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col0_red_col6_state col4) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col0_red_col6_state col5) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col0_red_col6_state col6).
+
+Lemma opening_col6_reply_col0_red_col6_subgoals_imply_child :
+  opening_col6_reply_col0_red_col6_reply_subgoals ->
+  red_can_force_win 39 opening_col6_reply_col0_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col0_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col0_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col0_goal_if_red_col6_child.
+  apply opening_col6_reply_col0_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col0_red_col6_reply_col0_state : game :=
+  apply_move opening_col6_reply_col0_red_col6_state col0.
+
+Definition opening_col6_reply_col0_red_col6_reply_col0_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col0_red_col6_reply_col0_state.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col0_turn_red :
+  next_turn opening_col6_reply_col0_red_col6_reply_col0_state = red.
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col0_state.
+  unfold opening_col6_reply_col0_red_col6_state.
+  unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col0_result_ongoing :
+  get_result opening_col6_reply_col0_red_col6_reply_col0_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col0_goal_unfold :
+  opening_col6_reply_col0_red_col6_reply_col0_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col0_red_col6_reply_col0_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col0_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col0_red_col6_reply_col0_result_ongoing.
+  - apply opening_col6_reply_col0_red_col6_reply_col0_turn_red.
+Qed.
+
+Definition opening_col6_reply_col0_red_col6_reply_col0_red_col6_state : game :=
+  apply_move opening_col6_reply_col0_red_col6_reply_col0_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col0_red_col6_reply_col0_red_col6 :
+  In opening_col6_reply_col0_red_col6_reply_col0_red_col6_state
+     (c4_next opening_col6_reply_col0_red_col6_reply_col0_state).
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col0_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col0_red_col6_reply_col0_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col0_red_col6_reply_col0_result_ongoing.
+  - unfold opening_col6_reply_col0_red_col6_reply_col0_state.
+    unfold opening_col6_reply_col0_red_col6_state.
+    unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col0_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col0_red_col6_reply_col0_red_col6_state ->
+  opening_col6_reply_col0_red_col6_reply_col0_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col0_red_col6_reply_col0_goal_unfold).
+  exists opening_col6_reply_col0_red_col6_reply_col0_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col0_red_col6_reply_col0_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col0_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col0_red_col6_reply_col0_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col0_red_col6_state.
+  unfold opening_col6_reply_col0_red_col6_reply_col0_state.
+  unfold opening_col6_reply_col0_red_col6_state.
+  unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col0_red_col6_result_ongoing :
+  get_result opening_col6_reply_col0_red_col6_reply_col0_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col0_red_col6_reply_col0_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state m)
+       (c4_next opening_col6_reply_col0_red_col6_reply_col0_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col0_red_col6_reply_col0_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col0_red_col6_reply_col0_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col0_red_col6_reply_col0_red_col6_state.
+    unfold opening_col6_reply_col0_red_col6_reply_col0_state.
+    unfold opening_col6_reply_col0_red_col6_state.
+    unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col0_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col0_red_col6_reply_col0_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col0_red_col6_reply_col0_red_col6_state
+                    opening_col6_reply_col0_red_col6_reply_col0_red_col6_result_ongoing
+                    opening_col6_reply_col0_red_col6_reply_col0_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col0_red_col6_reply_col0_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col0_red_col6_reply_col0_red_col6_state
+                    opening_col6_reply_col0_red_col6_reply_col0_red_col6_result_ongoing
+                    opening_col6_reply_col0_red_col6_reply_col0_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col0_red_col6_reply_col0_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col0_red_col6_reply_col0_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6).
+
+Lemma opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col0_red_col6_subgoals_imply_child :
+  opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col0_red_col6_reply_col0_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col0_red_col6_reply_col0_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col0_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col0_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col0_red_col6_reply_col0_goal_if_red_col6_child.
+  apply opening_col6_reply_col0_red_col6_reply_col0_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col0_red_col6_reply_col1_state : game :=
+  apply_move opening_col6_reply_col0_red_col6_state col1.
+
+Definition opening_col6_reply_col0_red_col6_reply_col1_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col0_red_col6_reply_col1_state.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col1_turn_red :
+  next_turn opening_col6_reply_col0_red_col6_reply_col1_state = red.
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col1_state.
+  unfold opening_col6_reply_col0_red_col6_state.
+  unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col1_result_ongoing :
+  get_result opening_col6_reply_col0_red_col6_reply_col1_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col1_goal_unfold :
+  opening_col6_reply_col0_red_col6_reply_col1_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col0_red_col6_reply_col1_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col1_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col0_red_col6_reply_col1_result_ongoing.
+  - apply opening_col6_reply_col0_red_col6_reply_col1_turn_red.
+Qed.
+
+Definition opening_col6_reply_col0_red_col6_reply_col1_red_col6_state : game :=
+  apply_move opening_col6_reply_col0_red_col6_reply_col1_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col0_red_col6_reply_col1_red_col6 :
+  In opening_col6_reply_col0_red_col6_reply_col1_red_col6_state
+     (c4_next opening_col6_reply_col0_red_col6_reply_col1_state).
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col1_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col0_red_col6_reply_col1_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col0_red_col6_reply_col1_result_ongoing.
+  - unfold opening_col6_reply_col0_red_col6_reply_col1_state.
+    unfold opening_col6_reply_col0_red_col6_state.
+    unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col1_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col0_red_col6_reply_col1_red_col6_state ->
+  opening_col6_reply_col0_red_col6_reply_col1_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col0_red_col6_reply_col1_goal_unfold).
+  exists opening_col6_reply_col0_red_col6_reply_col1_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col0_red_col6_reply_col1_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col1_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col0_red_col6_reply_col1_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col1_red_col6_state.
+  unfold opening_col6_reply_col0_red_col6_reply_col1_state.
+  unfold opening_col6_reply_col0_red_col6_state.
+  unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col1_red_col6_result_ongoing :
+  get_result opening_col6_reply_col0_red_col6_reply_col1_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col0_red_col6_reply_col1_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state m)
+       (c4_next opening_col6_reply_col0_red_col6_reply_col1_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col0_red_col6_reply_col1_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col0_red_col6_reply_col1_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col0_red_col6_reply_col1_red_col6_state.
+    unfold opening_col6_reply_col0_red_col6_reply_col1_state.
+    unfold opening_col6_reply_col0_red_col6_state.
+    unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col1_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col0_red_col6_reply_col1_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col0_red_col6_reply_col1_red_col6_state
+                    opening_col6_reply_col0_red_col6_reply_col1_red_col6_result_ongoing
+                    opening_col6_reply_col0_red_col6_reply_col1_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col0_red_col6_reply_col1_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col0_red_col6_reply_col1_red_col6_state
+                    opening_col6_reply_col0_red_col6_reply_col1_red_col6_result_ongoing
+                    opening_col6_reply_col0_red_col6_reply_col1_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col0_red_col6_reply_col1_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col0_red_col6_reply_col1_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6).
+
+Lemma opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col1_red_col6_subgoals_imply_child :
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col0_red_col6_reply_col1_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col0_red_col6_reply_col1_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col1_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col1_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col0_red_col6_reply_col1_goal_if_red_col6_child.
+  apply opening_col6_reply_col0_red_col6_reply_col1_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col0_red_col6_reply_col2_state : game :=
+  apply_move opening_col6_reply_col0_red_col6_state col2.
+
+Definition opening_col6_reply_col0_red_col6_reply_col2_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col0_red_col6_reply_col2_state.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col2_turn_red :
+  next_turn opening_col6_reply_col0_red_col6_reply_col2_state = red.
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col2_state.
+  unfold opening_col6_reply_col0_red_col6_state.
+  unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col2_result_ongoing :
+  get_result opening_col6_reply_col0_red_col6_reply_col2_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col2_goal_unfold :
+  opening_col6_reply_col0_red_col6_reply_col2_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col0_red_col6_reply_col2_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col2_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col0_red_col6_reply_col2_result_ongoing.
+  - apply opening_col6_reply_col0_red_col6_reply_col2_turn_red.
+Qed.
+
+Definition opening_col6_reply_col0_red_col6_reply_col2_red_col6_state : game :=
+  apply_move opening_col6_reply_col0_red_col6_reply_col2_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col0_red_col6_reply_col2_red_col6 :
+  In opening_col6_reply_col0_red_col6_reply_col2_red_col6_state
+     (c4_next opening_col6_reply_col0_red_col6_reply_col2_state).
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col2_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col0_red_col6_reply_col2_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col0_red_col6_reply_col2_result_ongoing.
+  - unfold opening_col6_reply_col0_red_col6_reply_col2_state.
+    unfold opening_col6_reply_col0_red_col6_state.
+    unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col2_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col0_red_col6_reply_col2_red_col6_state ->
+  opening_col6_reply_col0_red_col6_reply_col2_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col0_red_col6_reply_col2_goal_unfold).
+  exists opening_col6_reply_col0_red_col6_reply_col2_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col0_red_col6_reply_col2_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col2_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col0_red_col6_reply_col2_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col2_red_col6_state.
+  unfold opening_col6_reply_col0_red_col6_reply_col2_state.
+  unfold opening_col6_reply_col0_red_col6_state.
+  unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col2_red_col6_result_ongoing :
+  get_result opening_col6_reply_col0_red_col6_reply_col2_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col0_red_col6_reply_col2_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state m)
+       (c4_next opening_col6_reply_col0_red_col6_reply_col2_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col0_red_col6_reply_col2_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col0_red_col6_reply_col2_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col0_red_col6_reply_col2_red_col6_state.
+    unfold opening_col6_reply_col0_red_col6_reply_col2_state.
+    unfold opening_col6_reply_col0_red_col6_state.
+    unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col2_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col0_red_col6_reply_col2_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col0_red_col6_reply_col2_red_col6_state
+                    opening_col6_reply_col0_red_col6_reply_col2_red_col6_result_ongoing
+                    opening_col6_reply_col0_red_col6_reply_col2_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col0_red_col6_reply_col2_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col0_red_col6_reply_col2_red_col6_state
+                    opening_col6_reply_col0_red_col6_reply_col2_red_col6_result_ongoing
+                    opening_col6_reply_col0_red_col6_reply_col2_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col0_red_col6_reply_col2_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col0_red_col6_reply_col2_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col6).
+
+Lemma opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col2_red_col6_subgoals_imply_child :
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col0_red_col6_reply_col2_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col0_red_col6_reply_col2_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col2_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col2_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col0_red_col6_reply_col2_goal_if_red_col6_child.
+  apply opening_col6_reply_col0_red_col6_reply_col2_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col0_red_col6_reply_col3_state : game :=
+  apply_move opening_col6_reply_col0_red_col6_state col3.
+
+Definition opening_col6_reply_col0_red_col6_reply_col3_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col0_red_col6_reply_col3_state.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col3_turn_red :
+  next_turn opening_col6_reply_col0_red_col6_reply_col3_state = red.
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col3_state.
+  unfold opening_col6_reply_col0_red_col6_state.
+  unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col3_result_ongoing :
+  get_result opening_col6_reply_col0_red_col6_reply_col3_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col3_goal_unfold :
+  opening_col6_reply_col0_red_col6_reply_col3_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col0_red_col6_reply_col3_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col3_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col0_red_col6_reply_col3_result_ongoing.
+  - apply opening_col6_reply_col0_red_col6_reply_col3_turn_red.
+Qed.
+
+Definition opening_col6_reply_col0_red_col6_reply_col3_red_col6_state : game :=
+  apply_move opening_col6_reply_col0_red_col6_reply_col3_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col0_red_col6_reply_col3_red_col6 :
+  In opening_col6_reply_col0_red_col6_reply_col3_red_col6_state
+     (c4_next opening_col6_reply_col0_red_col6_reply_col3_state).
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col3_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col0_red_col6_reply_col3_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col0_red_col6_reply_col3_result_ongoing.
+  - unfold opening_col6_reply_col0_red_col6_reply_col3_state.
+    unfold opening_col6_reply_col0_red_col6_state.
+    unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col3_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col0_red_col6_reply_col3_red_col6_state ->
+  opening_col6_reply_col0_red_col6_reply_col3_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col0_red_col6_reply_col3_goal_unfold).
+  exists opening_col6_reply_col0_red_col6_reply_col3_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col0_red_col6_reply_col3_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col3_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col0_red_col6_reply_col3_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col3_red_col6_state.
+  unfold opening_col6_reply_col0_red_col6_reply_col3_state.
+  unfold opening_col6_reply_col0_red_col6_state.
+  unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col3_red_col6_result_ongoing :
+  get_result opening_col6_reply_col0_red_col6_reply_col3_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col0_red_col6_reply_col3_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state m)
+       (c4_next opening_col6_reply_col0_red_col6_reply_col3_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col0_red_col6_reply_col3_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col0_red_col6_reply_col3_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col0_red_col6_reply_col3_red_col6_state.
+    unfold opening_col6_reply_col0_red_col6_reply_col3_state.
+    unfold opening_col6_reply_col0_red_col6_state.
+    unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col3_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col0_red_col6_reply_col3_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col0_red_col6_reply_col3_red_col6_state
+                    opening_col6_reply_col0_red_col6_reply_col3_red_col6_result_ongoing
+                    opening_col6_reply_col0_red_col6_reply_col3_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col0_red_col6_reply_col3_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col0_red_col6_reply_col3_red_col6_state
+                    opening_col6_reply_col0_red_col6_reply_col3_red_col6_result_ongoing
+                    opening_col6_reply_col0_red_col6_reply_col3_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col0_red_col6_reply_col3_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col0_red_col6_reply_col3_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col6).
+
+Lemma opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col3_red_col6_subgoals_imply_child :
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col0_red_col6_reply_col3_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col0_red_col6_reply_col3_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col3_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col0_red_col6_reply_col3_goal_if_red_col6_child.
+  apply opening_col6_reply_col0_red_col6_reply_col3_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col0_red_col6_reply_col4_state : game :=
+  apply_move opening_col6_reply_col0_red_col6_state col4.
+
+Definition opening_col6_reply_col0_red_col6_reply_col4_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col0_red_col6_reply_col4_state.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col4_turn_red :
+  next_turn opening_col6_reply_col0_red_col6_reply_col4_state = red.
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col4_state.
+  unfold opening_col6_reply_col0_red_col6_state.
+  unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col4_result_ongoing :
+  get_result opening_col6_reply_col0_red_col6_reply_col4_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col4_goal_unfold :
+  opening_col6_reply_col0_red_col6_reply_col4_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col0_red_col6_reply_col4_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col4_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col0_red_col6_reply_col4_result_ongoing.
+  - apply opening_col6_reply_col0_red_col6_reply_col4_turn_red.
+Qed.
+
+Definition opening_col6_reply_col0_red_col6_reply_col4_red_col6_state : game :=
+  apply_move opening_col6_reply_col0_red_col6_reply_col4_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col0_red_col6_reply_col4_red_col6 :
+  In opening_col6_reply_col0_red_col6_reply_col4_red_col6_state
+     (c4_next opening_col6_reply_col0_red_col6_reply_col4_state).
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col4_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col0_red_col6_reply_col4_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col0_red_col6_reply_col4_result_ongoing.
+  - unfold opening_col6_reply_col0_red_col6_reply_col4_state.
+    unfold opening_col6_reply_col0_red_col6_state.
+    unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col4_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col0_red_col6_reply_col4_red_col6_state ->
+  opening_col6_reply_col0_red_col6_reply_col4_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col0_red_col6_reply_col4_goal_unfold).
+  exists opening_col6_reply_col0_red_col6_reply_col4_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col0_red_col6_reply_col4_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col4_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col0_red_col6_reply_col4_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col4_red_col6_state.
+  unfold opening_col6_reply_col0_red_col6_reply_col4_state.
+  unfold opening_col6_reply_col0_red_col6_state.
+  unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col4_red_col6_result_ongoing :
+  get_result opening_col6_reply_col0_red_col6_reply_col4_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col0_red_col6_reply_col4_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state m)
+       (c4_next opening_col6_reply_col0_red_col6_reply_col4_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col0_red_col6_reply_col4_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col0_red_col6_reply_col4_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col0_red_col6_reply_col4_red_col6_state.
+    unfold opening_col6_reply_col0_red_col6_reply_col4_state.
+    unfold opening_col6_reply_col0_red_col6_state.
+    unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col4_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col0_red_col6_reply_col4_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col0_red_col6_reply_col4_red_col6_state
+                    opening_col6_reply_col0_red_col6_reply_col4_red_col6_result_ongoing
+                    opening_col6_reply_col0_red_col6_reply_col4_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col0_red_col6_reply_col4_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col0_red_col6_reply_col4_red_col6_state
+                    opening_col6_reply_col0_red_col6_reply_col4_red_col6_result_ongoing
+                    opening_col6_reply_col0_red_col6_reply_col4_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col0_red_col6_reply_col4_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col0_red_col6_reply_col4_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col6).
+
+Lemma opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col4_red_col6_subgoals_imply_child :
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col0_red_col6_reply_col4_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col0_red_col6_reply_col4_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col4_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col0_red_col6_reply_col4_goal_if_red_col6_child.
+  apply opening_col6_reply_col0_red_col6_reply_col4_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col0_red_col6_reply_col5_state : game :=
+  apply_move opening_col6_reply_col0_red_col6_state col5.
+
+Definition opening_col6_reply_col0_red_col6_reply_col5_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col0_red_col6_reply_col5_state.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col5_turn_red :
+  next_turn opening_col6_reply_col0_red_col6_reply_col5_state = red.
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col5_state.
+  unfold opening_col6_reply_col0_red_col6_state.
+  unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col5_result_ongoing :
+  get_result opening_col6_reply_col0_red_col6_reply_col5_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col5_goal_unfold :
+  opening_col6_reply_col0_red_col6_reply_col5_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col0_red_col6_reply_col5_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col5_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col0_red_col6_reply_col5_result_ongoing.
+  - apply opening_col6_reply_col0_red_col6_reply_col5_turn_red.
+Qed.
+
+Definition opening_col6_reply_col0_red_col6_reply_col5_red_col6_state : game :=
+  apply_move opening_col6_reply_col0_red_col6_reply_col5_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col0_red_col6_reply_col5_red_col6 :
+  In opening_col6_reply_col0_red_col6_reply_col5_red_col6_state
+     (c4_next opening_col6_reply_col0_red_col6_reply_col5_state).
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col5_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col0_red_col6_reply_col5_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col0_red_col6_reply_col5_result_ongoing.
+  - unfold opening_col6_reply_col0_red_col6_reply_col5_state.
+    unfold opening_col6_reply_col0_red_col6_state.
+    unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col5_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col0_red_col6_reply_col5_red_col6_state ->
+  opening_col6_reply_col0_red_col6_reply_col5_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col0_red_col6_reply_col5_goal_unfold).
+  exists opening_col6_reply_col0_red_col6_reply_col5_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col0_red_col6_reply_col5_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col5_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col0_red_col6_reply_col5_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col5_red_col6_state.
+  unfold opening_col6_reply_col0_red_col6_reply_col5_state.
+  unfold opening_col6_reply_col0_red_col6_state.
+  unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col5_red_col6_result_ongoing :
+  get_result opening_col6_reply_col0_red_col6_reply_col5_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col0_red_col6_reply_col5_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state m)
+       (c4_next opening_col6_reply_col0_red_col6_reply_col5_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col0_red_col6_reply_col5_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col0_red_col6_reply_col5_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col0_red_col6_reply_col5_red_col6_state.
+    unfold opening_col6_reply_col0_red_col6_reply_col5_state.
+    unfold opening_col6_reply_col0_red_col6_state.
+    unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col5_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col0_red_col6_reply_col5_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col0_red_col6_reply_col5_red_col6_state
+                    opening_col6_reply_col0_red_col6_reply_col5_red_col6_result_ongoing
+                    opening_col6_reply_col0_red_col6_reply_col5_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col0_red_col6_reply_col5_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col0_red_col6_reply_col5_red_col6_state
+                    opening_col6_reply_col0_red_col6_reply_col5_red_col6_result_ongoing
+                    opening_col6_reply_col0_red_col6_reply_col5_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col0_red_col6_reply_col5_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col0_red_col6_reply_col5_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col6).
+
+Lemma opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col5_red_col6_subgoals_imply_child :
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col0_red_col6_reply_col5_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col0_red_col6_reply_col5_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col5_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col0_red_col6_reply_col5_goal_if_red_col6_child.
+  apply opening_col6_reply_col0_red_col6_reply_col5_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col0_red_col6_reply_col6_state : game :=
+  apply_move opening_col6_reply_col0_red_col6_state col6.
+
+Definition opening_col6_reply_col0_red_col6_reply_col6_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col0_red_col6_reply_col6_state.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col6_turn_red :
+  next_turn opening_col6_reply_col0_red_col6_reply_col6_state = red.
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col6_state.
+  unfold opening_col6_reply_col0_red_col6_state.
+  unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col6_result_ongoing :
+  get_result opening_col6_reply_col0_red_col6_reply_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col6_goal_unfold :
+  opening_col6_reply_col0_red_col6_reply_col6_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col0_red_col6_reply_col6_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col6_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col0_red_col6_reply_col6_result_ongoing.
+  - apply opening_col6_reply_col0_red_col6_reply_col6_turn_red.
+Qed.
+
+Definition opening_col6_reply_col0_red_col6_reply_col6_red_col6_state : game :=
+  apply_move opening_col6_reply_col0_red_col6_reply_col6_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col0_red_col6_reply_col6_red_col6 :
+  In opening_col6_reply_col0_red_col6_reply_col6_red_col6_state
+     (c4_next opening_col6_reply_col0_red_col6_reply_col6_state).
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col6_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col0_red_col6_reply_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col0_red_col6_reply_col6_result_ongoing.
+  - unfold opening_col6_reply_col0_red_col6_reply_col6_state.
+    unfold opening_col6_reply_col0_red_col6_state.
+    unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col6_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col0_red_col6_reply_col6_red_col6_state ->
+  opening_col6_reply_col0_red_col6_reply_col6_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col0_red_col6_reply_col6_goal_unfold).
+  exists opening_col6_reply_col0_red_col6_reply_col6_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col0_red_col6_reply_col6_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col6_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col0_red_col6_reply_col6_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col0_red_col6_reply_col6_red_col6_state.
+  unfold opening_col6_reply_col0_red_col6_reply_col6_state.
+  unfold opening_col6_reply_col0_red_col6_state.
+  unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col6_red_col6_result_ongoing :
+  get_result opening_col6_reply_col0_red_col6_reply_col6_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col0_red_col6_reply_col6_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col0_red_col6_reply_col6_red_col6_state m)
+       (c4_next opening_col6_reply_col0_red_col6_reply_col6_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col0_red_col6_reply_col6_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col0_red_col6_reply_col6_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col0_red_col6_reply_col6_red_col6_state.
+    unfold opening_col6_reply_col0_red_col6_reply_col6_state.
+    unfold opening_col6_reply_col0_red_col6_state.
+    unfold opening_col6_reply_col0_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col6_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col0_red_col6_reply_col6_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col0_red_col6_reply_col6_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col0_red_col6_reply_col6_red_col6_state
+                    opening_col6_reply_col0_red_col6_reply_col6_red_col6_result_ongoing
+                    opening_col6_reply_col0_red_col6_reply_col6_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col0_red_col6_reply_col6_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col0_red_col6_reply_col6_red_col6_state
+                    opening_col6_reply_col0_red_col6_reply_col6_red_col6_result_ongoing
+                    opening_col6_reply_col0_red_col6_reply_col6_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col0_red_col6_reply_col6_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col0_red_col6_reply_col6_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col6_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col6_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col6_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col6_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col6_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col6_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col0_red_col6_reply_col6_red_col6_state col6).
+
+Lemma opening_col6_reply_col0_red_col6_reply_col6_red_col6_subgoals_imply_child :
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col0_red_col6_reply_col6_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col0_red_col6_reply_col6_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col6_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col0_red_col6_reply_col6_goal_if_red_col6_child.
+  apply opening_col6_reply_col0_red_col6_reply_col6_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col0_raw_if_subgoals :
+  opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col0_red_col6_state col0).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col0_red_col6_reply_col0_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col0_red_col6_reply_col0_state
+                  opening_col6_reply_col0_red_col6_reply_col0_result_ongoing
+                  opening_col6_reply_col0_red_col6_reply_col0_turn_red)).
+  exists opening_col6_reply_col0_red_col6_reply_col0_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col0_red_col6_reply_col0_red_col6.
+  - apply opening_col6_reply_col0_red_col6_reply_col0_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col1_raw_if_subgoals :
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col0_red_col6_state col1).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col0_red_col6_reply_col1_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col0_red_col6_reply_col1_state
+                  opening_col6_reply_col0_red_col6_reply_col1_result_ongoing
+                  opening_col6_reply_col0_red_col6_reply_col1_turn_red)).
+  exists opening_col6_reply_col0_red_col6_reply_col1_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col0_red_col6_reply_col1_red_col6.
+  - apply opening_col6_reply_col0_red_col6_reply_col1_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col2_raw_if_subgoals :
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col0_red_col6_state col2).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col0_red_col6_reply_col2_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col0_red_col6_reply_col2_state
+                  opening_col6_reply_col0_red_col6_reply_col2_result_ongoing
+                  opening_col6_reply_col0_red_col6_reply_col2_turn_red)).
+  exists opening_col6_reply_col0_red_col6_reply_col2_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col0_red_col6_reply_col2_red_col6.
+  - apply opening_col6_reply_col0_red_col6_reply_col2_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col3_raw_if_subgoals :
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col0_red_col6_state col3).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col0_red_col6_reply_col3_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col0_red_col6_reply_col3_state
+                  opening_col6_reply_col0_red_col6_reply_col3_result_ongoing
+                  opening_col6_reply_col0_red_col6_reply_col3_turn_red)).
+  exists opening_col6_reply_col0_red_col6_reply_col3_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col0_red_col6_reply_col3_red_col6.
+  - apply opening_col6_reply_col0_red_col6_reply_col3_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col4_raw_if_subgoals :
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col0_red_col6_state col4).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col0_red_col6_reply_col4_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col0_red_col6_reply_col4_state
+                  opening_col6_reply_col0_red_col6_reply_col4_result_ongoing
+                  opening_col6_reply_col0_red_col6_reply_col4_turn_red)).
+  exists opening_col6_reply_col0_red_col6_reply_col4_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col0_red_col6_reply_col4_red_col6.
+  - apply opening_col6_reply_col0_red_col6_reply_col4_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col5_raw_if_subgoals :
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col0_red_col6_state col5).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col0_red_col6_reply_col5_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col0_red_col6_reply_col5_state
+                  opening_col6_reply_col0_red_col6_reply_col5_result_ongoing
+                  opening_col6_reply_col0_red_col6_reply_col5_turn_red)).
+  exists opening_col6_reply_col0_red_col6_reply_col5_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col0_red_col6_reply_col5_red_col6.
+  - apply opening_col6_reply_col0_red_col6_reply_col5_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col0_red_col6_reply_col6_raw_if_subgoals :
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col0_red_col6_state col6).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col0_red_col6_reply_col6_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col0_red_col6_reply_col6_state
+                  opening_col6_reply_col0_red_col6_reply_col6_result_ongoing
+                  opening_col6_reply_col0_red_col6_reply_col6_turn_red)).
+  exists opening_col6_reply_col0_red_col6_reply_col6_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col0_red_col6_reply_col6_red_col6.
+  - apply opening_col6_reply_col0_red_col6_reply_col6_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col0_raw_if_all_reply_subgoal_blocks :
+  opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 opening_col6_reply_col0_state.
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6.
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 39
+                  opening_col6_reply_col0_state
+                  opening_col6_reply_col0_result_ongoing
+                  opening_col6_reply_col0_turn_red)).
+  exists opening_col6_reply_col0_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col0_red_col6.
+  - apply (proj2 (red_can_force_win_unfold_ongoing_yellow 38
+                    opening_col6_reply_col0_red_col6_state
+                    opening_col6_reply_col0_red_col6_result_ongoing
+                    opening_col6_reply_col0_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col0_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col0_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    destruct m.
+    + apply opening_col6_reply_col0_red_col6_reply_col0_raw_if_subgoals; exact H0.
+    + apply opening_col6_reply_col0_red_col6_reply_col1_raw_if_subgoals; exact H1.
+    + apply opening_col6_reply_col0_red_col6_reply_col2_raw_if_subgoals; exact H2.
+    + apply opening_col6_reply_col0_red_col6_reply_col3_raw_if_subgoals; exact H3.
+    + apply opening_col6_reply_col0_red_col6_reply_col4_raw_if_subgoals; exact H4.
+    + apply opening_col6_reply_col0_red_col6_reply_col5_raw_if_subgoals; exact H5.
+    + apply opening_col6_reply_col0_red_col6_reply_col6_raw_if_subgoals; exact H6.
+Qed.
+
+Lemma opening_col6_reply_col0_goal_if_all_reply_subgoal_blocks :
+  opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_goal.
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6.
+  apply opening_col6_reply_col0_raw_if_all_reply_subgoal_blocks; assumption.
+Qed.
+
+Lemma opening_col6_reply_col0_firstconj_if_all_reply_subgoal_blocks :
+  opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col0).
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6.
+  change (red_can_force_win 40 opening_col6_reply_col0_state).
+  apply opening_col6_reply_col0_raw_if_all_reply_subgoal_blocks; assumption.
+Qed.
+
+Lemma opening_col6_reply_col0_firstconj_if_col0col0_col6_and_other_reply_subgoal_blocks :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col0).
+Proof.
+  intros H00c6 H1 H2 H3 H4 H5 H6.
+  apply opening_col6_reply_col0_firstconj_if_all_reply_subgoal_blocks.
+  - apply opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals_if_col6.
+    exact H00c6.
+  - exact H1.
+  - exact H2.
+  - exact H3.
+  - exact H4.
+  - exact H5.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col0_firstconj_if_col0col0_col6_and_col0col1_col6_and_other_reply_subgoal_blocks :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col0).
+Proof.
+  intros H00c6 H01c6 H2 H3 H4 H5 H6.
+  apply opening_col6_reply_col0_firstconj_if_col0col0_col6_and_other_reply_subgoal_blocks.
+  - exact H00c6.
+  - apply opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals_if_col6.
+    exact H01c6.
+  - exact H2.
+  - exact H3.
+  - exact H4.
+  - exact H5.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col0_firstconj_if_col0col0to5_col6_and_col0col6_block :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col0).
+Proof.
+  intros H00c6 H01c6 H02c6 H03c6 H04c6 H05c6 H6.
+  apply opening_col6_reply_col0_firstconj_if_col0col0_col6_and_col0col1_col6_and_other_reply_subgoal_blocks.
+  - exact H00c6.
+  - exact H01c6.
+  - apply opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals_if_col6.
+    exact H02c6.
+  - apply opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals_if_col6.
+    exact H03c6.
+  - apply opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals_if_col6.
+    exact H04c6.
+  - apply opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals_if_col6.
+    exact H05c6.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_subgoals_if_col0_all_reply_subgoal_blocks_and_rest_raw :
+  opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col1) ->
+  red_can_force_win 40 (apply_move opening_col6_state col2) ->
+  red_can_force_win 40 (apply_move opening_col6_state col3) ->
+  red_can_force_win 40 (apply_move opening_col6_state col4) ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_reply_subgoals.
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6 Hr1 Hr2 Hr3 Hr4 Hr5 Hr6.
+  apply opening_col6_reply_subgoals_if_col0_and_rest_raw.
+  - apply opening_col6_reply_col0_firstconj_if_all_reply_subgoal_blocks; assumption.
+  - exact Hr1.
+  - exact Hr2.
+  - exact Hr3.
+  - exact Hr4.
+  - exact Hr5.
+  - exact Hr6.
+Qed.
+
+Lemma opening_col6_reply_subgoals_if_col0col0_col6_and_other_reply_subgoal_blocks_and_rest_raw :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col1) ->
+  red_can_force_win 40 (apply_move opening_col6_state col2) ->
+  red_can_force_win 40 (apply_move opening_col6_state col3) ->
+  red_can_force_win 40 (apply_move opening_col6_state col4) ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_reply_subgoals.
+Proof.
+  intros H00c6 H1 H2 H3 H4 H5 H6 Hr1 Hr2 Hr3 Hr4 Hr5 Hr6.
+  apply opening_col6_reply_subgoals_if_col0_and_rest_raw.
+  - apply opening_col6_reply_col0_firstconj_if_col0col0_col6_and_other_reply_subgoal_blocks;
+      assumption.
+  - exact Hr1.
+  - exact Hr2.
+  - exact Hr3.
+  - exact Hr4.
+  - exact Hr5.
+  - exact Hr6.
+Qed.
+
+Lemma opening_col6_reply_subgoals_if_col0col0_col6_and_col0col1_col6_and_other_reply_subgoal_blocks_and_rest_raw :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col1) ->
+  red_can_force_win 40 (apply_move opening_col6_state col2) ->
+  red_can_force_win 40 (apply_move opening_col6_state col3) ->
+  red_can_force_win 40 (apply_move opening_col6_state col4) ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_reply_subgoals.
+Proof.
+  intros H00c6 H01c6 H2 H3 H4 H5 H6 Hr1 Hr2 Hr3 Hr4 Hr5 Hr6.
+  apply opening_col6_reply_subgoals_if_col0_and_rest_raw.
+  - apply opening_col6_reply_col0_firstconj_if_col0col0_col6_and_col0col1_col6_and_other_reply_subgoal_blocks;
+      assumption.
+  - exact Hr1.
+  - exact Hr2.
+  - exact Hr3.
+  - exact Hr4.
+  - exact Hr5.
+  - exact Hr6.
+Qed.
+
+Lemma opening_col6_reply_subgoals_if_col0col0to5_col6_and_col0col6_block_and_rest_raw :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col1) ->
+  red_can_force_win 40 (apply_move opening_col6_state col2) ->
+  red_can_force_win 40 (apply_move opening_col6_state col3) ->
+  red_can_force_win 40 (apply_move opening_col6_state col4) ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_reply_subgoals.
+Proof.
+  intros H00c6 H01c6 H02c6 H03c6 H04c6 H05c6 H6 Hr1 Hr2 Hr3 Hr4 Hr5 Hr6.
+  apply opening_col6_reply_subgoals_if_col0_and_rest_raw.
+  - apply opening_col6_reply_col0_firstconj_if_col0col0to5_col6_and_col0col6_block;
+      assumption.
+  - exact Hr1.
+  - exact Hr2.
+  - exact Hr3.
+  - exact Hr4.
+  - exact Hr5.
+  - exact Hr6.
+Qed.
+
+Lemma opening_col6_target_if_col0_all_reply_subgoal_blocks_and_rest_raw :
+  opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col1) ->
+  red_can_force_win 40 (apply_move opening_col6_state col2) ->
+  red_can_force_win 40 (apply_move opening_col6_state col3) ->
+  red_can_force_win 40 (apply_move opening_col6_state col4) ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_target.
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6 Hr1 Hr2 Hr3 Hr4 Hr5 Hr6.
+  apply opening_col6_target_if_reply_subgoals.
+  apply opening_col6_reply_subgoals_if_col0_all_reply_subgoal_blocks_and_rest_raw;
+    assumption.
+Qed.
+
+Lemma opening_col6_target_if_col0col0_col6_and_other_reply_subgoal_blocks_and_rest_raw :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col1) ->
+  red_can_force_win 40 (apply_move opening_col6_state col2) ->
+  red_can_force_win 40 (apply_move opening_col6_state col3) ->
+  red_can_force_win 40 (apply_move opening_col6_state col4) ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_target.
+Proof.
+  intros H00c6 H1 H2 H3 H4 H5 H6 Hr1 Hr2 Hr3 Hr4 Hr5 Hr6.
+  apply opening_col6_target_if_reply_subgoals.
+  apply opening_col6_reply_subgoals_if_col0col0_col6_and_other_reply_subgoal_blocks_and_rest_raw;
+    assumption.
+Qed.
+
+Lemma opening_col6_target_if_col0col0_col6_and_col0col1_col6_and_other_reply_subgoal_blocks_and_rest_raw :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col1) ->
+  red_can_force_win 40 (apply_move opening_col6_state col2) ->
+  red_can_force_win 40 (apply_move opening_col6_state col3) ->
+  red_can_force_win 40 (apply_move opening_col6_state col4) ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_target.
+Proof.
+  intros H00c6 H01c6 H2 H3 H4 H5 H6 Hr1 Hr2 Hr3 Hr4 Hr5 Hr6.
+  apply opening_col6_target_if_reply_subgoals.
+  apply opening_col6_reply_subgoals_if_col0col0_col6_and_col0col1_col6_and_other_reply_subgoal_blocks_and_rest_raw;
+    assumption.
+Qed.
+
+Lemma opening_col6_target_if_col0col0to5_col6_and_col0col6_block_and_rest_raw :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col1) ->
+  red_can_force_win 40 (apply_move opening_col6_state col2) ->
+  red_can_force_win 40 (apply_move opening_col6_state col3) ->
+  red_can_force_win 40 (apply_move opening_col6_state col4) ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_target.
+Proof.
+  intros H00c6 H01c6 H02c6 H03c6 H04c6 H05c6 H6 Hr1 Hr2 Hr3 Hr4 Hr5 Hr6.
+  apply opening_col6_target_if_reply_subgoals.
+  apply opening_col6_reply_subgoals_if_col0col0to5_col6_and_col0col6_block_and_rest_raw;
+    assumption.
+Qed.
+
+Definition opening_col6_reply_col1_state : game :=
+  apply_move opening_col6_state col1.
+
+Definition opening_col6_reply_col1_goal : Prop :=
+  red_can_force_win 40 opening_col6_reply_col1_state.
+
+Lemma opening_col6_reply_col1_turn_red :
+  next_turn opening_col6_reply_col1_state = red.
+Proof.
+  unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_result_ongoing :
+  get_result opening_col6_reply_col1_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_goal_unfold :
+  opening_col6_reply_col1_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col1_state) /\
+    red_can_force_win 39 g.
+Proof.
+  unfold opening_col6_reply_col1_goal.
+  change 40 with (S 39).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col1_result_ongoing.
+  - apply opening_col6_reply_col1_turn_red.
+Qed.
+
+Definition opening_col6_reply_col1_red_col6_state : game :=
+  apply_move opening_col6_reply_col1_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col1_red_col6 :
+  In opening_col6_reply_col1_red_col6_state
+     (c4_next opening_col6_reply_col1_state).
+Proof.
+  unfold opening_col6_reply_col1_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col1_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col1_result_ongoing.
+  - unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col1_goal_if_red_col6_child :
+  red_can_force_win 39 opening_col6_reply_col1_red_col6_state ->
+  opening_col6_reply_col1_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col1_goal_unfold).
+  exists opening_col6_reply_col1_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col1_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col1_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col1_red_col6_state.
+  unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_result_ongoing :
+  get_result opening_col6_reply_col1_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col1_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col1_red_col6_state m)
+       (c4_next opening_col6_reply_col1_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col1_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col1_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col1_red_col6_state.
+    unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_move_form :
+  red_can_force_win 39 opening_col6_reply_col1_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 38
+      (apply_move opening_col6_reply_col1_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 38
+                    opening_col6_reply_col1_red_col6_state
+                    opening_col6_reply_col1_red_col6_result_ongoing
+                    opening_col6_reply_col1_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col1_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 38
+                    opening_col6_reply_col1_red_col6_state
+                    opening_col6_reply_col1_red_col6_result_ongoing
+                    opening_col6_reply_col1_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col1_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col1_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col1_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 38 (apply_move opening_col6_reply_col1_red_col6_state col0) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col1_red_col6_state col1) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col1_red_col6_state col2) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col1_red_col6_state col3) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col1_red_col6_state col4) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col1_red_col6_state col5) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col1_red_col6_state col6).
+
+Lemma opening_col6_reply_col1_red_col6_subgoals_imply_child :
+  opening_col6_reply_col1_red_col6_reply_subgoals ->
+  red_can_force_win 39 opening_col6_reply_col1_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col1_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col1_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col1_goal_if_red_col6_child.
+  apply opening_col6_reply_col1_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col1_red_col6_reply_col0_state : game :=
+  apply_move opening_col6_reply_col1_red_col6_state col0.
+
+Definition opening_col6_reply_col1_red_col6_reply_col0_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col1_red_col6_reply_col0_state.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col0_turn_red :
+  next_turn opening_col6_reply_col1_red_col6_reply_col0_state = red.
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col0_state.
+  unfold opening_col6_reply_col1_red_col6_state.
+  unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col0_result_ongoing :
+  get_result opening_col6_reply_col1_red_col6_reply_col0_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col0_goal_unfold :
+  opening_col6_reply_col1_red_col6_reply_col0_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col1_red_col6_reply_col0_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col0_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col1_red_col6_reply_col0_result_ongoing.
+  - apply opening_col6_reply_col1_red_col6_reply_col0_turn_red.
+Qed.
+
+Definition opening_col6_reply_col1_red_col6_reply_col0_red_col6_state : game :=
+  apply_move opening_col6_reply_col1_red_col6_reply_col0_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col1_red_col6_reply_col0_red_col6 :
+  In opening_col6_reply_col1_red_col6_reply_col0_red_col6_state
+     (c4_next opening_col6_reply_col1_red_col6_reply_col0_state).
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col0_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col1_red_col6_reply_col0_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col1_red_col6_reply_col0_result_ongoing.
+  - unfold opening_col6_reply_col1_red_col6_reply_col0_state.
+    unfold opening_col6_reply_col1_red_col6_state.
+    unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col0_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col1_red_col6_reply_col0_red_col6_state ->
+  opening_col6_reply_col1_red_col6_reply_col0_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col1_red_col6_reply_col0_goal_unfold).
+  exists opening_col6_reply_col1_red_col6_reply_col0_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col1_red_col6_reply_col0_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col0_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col1_red_col6_reply_col0_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col0_red_col6_state.
+  unfold opening_col6_reply_col1_red_col6_reply_col0_state.
+  unfold opening_col6_reply_col1_red_col6_state.
+  unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col0_red_col6_result_ongoing :
+  get_result opening_col6_reply_col1_red_col6_reply_col0_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col1_red_col6_reply_col0_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state m)
+       (c4_next opening_col6_reply_col1_red_col6_reply_col0_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col1_red_col6_reply_col0_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col1_red_col6_reply_col0_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col1_red_col6_reply_col0_red_col6_state.
+    unfold opening_col6_reply_col1_red_col6_reply_col0_state.
+    unfold opening_col6_reply_col1_red_col6_state.
+    unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col0_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col1_red_col6_reply_col0_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col1_red_col6_reply_col0_red_col6_state
+                    opening_col6_reply_col1_red_col6_reply_col0_red_col6_result_ongoing
+                    opening_col6_reply_col1_red_col6_reply_col0_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col1_red_col6_reply_col0_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col1_red_col6_reply_col0_red_col6_state
+                    opening_col6_reply_col1_red_col6_reply_col0_red_col6_result_ongoing
+                    opening_col6_reply_col1_red_col6_reply_col0_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col1_red_col6_reply_col0_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col1_red_col6_reply_col0_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col1_red_col6_reply_col0_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col6).
+
+Lemma opening_col6_reply_col1_red_col6_reply_col0_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col6) ->
+  opening_col6_reply_col1_red_col6_reply_col0_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col0_red_col6_subgoals_imply_child :
+  opening_col6_reply_col1_red_col6_reply_col0_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col1_red_col6_reply_col0_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col1_red_col6_reply_col0_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col0_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col1_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col0_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col1_red_col6_reply_col0_goal_if_red_col6_child.
+  apply opening_col6_reply_col1_red_col6_reply_col0_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col1_red_col6_reply_col1_state : game :=
+  apply_move opening_col6_reply_col1_red_col6_state col1.
+
+Definition opening_col6_reply_col1_red_col6_reply_col1_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col1_red_col6_reply_col1_state.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col1_turn_red :
+  next_turn opening_col6_reply_col1_red_col6_reply_col1_state = red.
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col1_state.
+  unfold opening_col6_reply_col1_red_col6_state.
+  unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col1_result_ongoing :
+  get_result opening_col6_reply_col1_red_col6_reply_col1_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col1_goal_unfold :
+  opening_col6_reply_col1_red_col6_reply_col1_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col1_red_col6_reply_col1_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col1_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col1_red_col6_reply_col1_result_ongoing.
+  - apply opening_col6_reply_col1_red_col6_reply_col1_turn_red.
+Qed.
+
+Definition opening_col6_reply_col1_red_col6_reply_col1_red_col6_state : game :=
+  apply_move opening_col6_reply_col1_red_col6_reply_col1_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col1_red_col6_reply_col1_red_col6 :
+  In opening_col6_reply_col1_red_col6_reply_col1_red_col6_state
+     (c4_next opening_col6_reply_col1_red_col6_reply_col1_state).
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col1_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col1_red_col6_reply_col1_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col1_red_col6_reply_col1_result_ongoing.
+  - unfold opening_col6_reply_col1_red_col6_reply_col1_state.
+    unfold opening_col6_reply_col1_red_col6_state.
+    unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col1_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col1_red_col6_reply_col1_red_col6_state ->
+  opening_col6_reply_col1_red_col6_reply_col1_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col1_red_col6_reply_col1_goal_unfold).
+  exists opening_col6_reply_col1_red_col6_reply_col1_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col1_red_col6_reply_col1_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col1_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col1_red_col6_reply_col1_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col1_red_col6_state.
+  unfold opening_col6_reply_col1_red_col6_reply_col1_state.
+  unfold opening_col6_reply_col1_red_col6_state.
+  unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col1_red_col6_result_ongoing :
+  get_result opening_col6_reply_col1_red_col6_reply_col1_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col1_red_col6_reply_col1_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state m)
+       (c4_next opening_col6_reply_col1_red_col6_reply_col1_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col1_red_col6_reply_col1_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col1_red_col6_reply_col1_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col1_red_col6_reply_col1_red_col6_state.
+    unfold opening_col6_reply_col1_red_col6_reply_col1_state.
+    unfold opening_col6_reply_col1_red_col6_state.
+    unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col1_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col1_red_col6_reply_col1_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col1_red_col6_reply_col1_red_col6_state
+                    opening_col6_reply_col1_red_col6_reply_col1_red_col6_result_ongoing
+                    opening_col6_reply_col1_red_col6_reply_col1_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col1_red_col6_reply_col1_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col1_red_col6_reply_col1_red_col6_state
+                    opening_col6_reply_col1_red_col6_reply_col1_red_col6_result_ongoing
+                    opening_col6_reply_col1_red_col6_reply_col1_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col1_red_col6_reply_col1_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col1_red_col6_reply_col1_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col1_red_col6_reply_col1_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col6).
+
+Lemma opening_col6_reply_col1_red_col6_reply_col1_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col6) ->
+  opening_col6_reply_col1_red_col6_reply_col1_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col1_red_col6_subgoals_imply_child :
+  opening_col6_reply_col1_red_col6_reply_col1_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col1_red_col6_reply_col1_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col1_red_col6_reply_col1_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col1_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col1_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col1_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col1_red_col6_reply_col1_goal_if_red_col6_child.
+  apply opening_col6_reply_col1_red_col6_reply_col1_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col1_red_col6_reply_col2_state : game :=
+  apply_move opening_col6_reply_col1_red_col6_state col2.
+
+Definition opening_col6_reply_col1_red_col6_reply_col2_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col1_red_col6_reply_col2_state.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col2_turn_red :
+  next_turn opening_col6_reply_col1_red_col6_reply_col2_state = red.
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col2_state.
+  unfold opening_col6_reply_col1_red_col6_state.
+  unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col2_result_ongoing :
+  get_result opening_col6_reply_col1_red_col6_reply_col2_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col2_goal_unfold :
+  opening_col6_reply_col1_red_col6_reply_col2_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col1_red_col6_reply_col2_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col2_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col1_red_col6_reply_col2_result_ongoing.
+  - apply opening_col6_reply_col1_red_col6_reply_col2_turn_red.
+Qed.
+
+Definition opening_col6_reply_col1_red_col6_reply_col2_red_col6_state : game :=
+  apply_move opening_col6_reply_col1_red_col6_reply_col2_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col1_red_col6_reply_col2_red_col6 :
+  In opening_col6_reply_col1_red_col6_reply_col2_red_col6_state
+     (c4_next opening_col6_reply_col1_red_col6_reply_col2_state).
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col2_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col1_red_col6_reply_col2_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col1_red_col6_reply_col2_result_ongoing.
+  - unfold opening_col6_reply_col1_red_col6_reply_col2_state.
+    unfold opening_col6_reply_col1_red_col6_state.
+    unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col2_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col1_red_col6_reply_col2_red_col6_state ->
+  opening_col6_reply_col1_red_col6_reply_col2_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col1_red_col6_reply_col2_goal_unfold).
+  exists opening_col6_reply_col1_red_col6_reply_col2_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col1_red_col6_reply_col2_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col2_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col1_red_col6_reply_col2_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col2_red_col6_state.
+  unfold opening_col6_reply_col1_red_col6_reply_col2_state.
+  unfold opening_col6_reply_col1_red_col6_state.
+  unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col2_red_col6_result_ongoing :
+  get_result opening_col6_reply_col1_red_col6_reply_col2_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col1_red_col6_reply_col2_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state m)
+       (c4_next opening_col6_reply_col1_red_col6_reply_col2_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col1_red_col6_reply_col2_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col1_red_col6_reply_col2_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col1_red_col6_reply_col2_red_col6_state.
+    unfold opening_col6_reply_col1_red_col6_reply_col2_state.
+    unfold opening_col6_reply_col1_red_col6_state.
+    unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col2_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col1_red_col6_reply_col2_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col1_red_col6_reply_col2_red_col6_state
+                    opening_col6_reply_col1_red_col6_reply_col2_red_col6_result_ongoing
+                    opening_col6_reply_col1_red_col6_reply_col2_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col1_red_col6_reply_col2_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col1_red_col6_reply_col2_red_col6_state
+                    opening_col6_reply_col1_red_col6_reply_col2_red_col6_result_ongoing
+                    opening_col6_reply_col1_red_col6_reply_col2_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col1_red_col6_reply_col2_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col1_red_col6_reply_col2_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col1_red_col6_reply_col2_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col6).
+
+Lemma opening_col6_reply_col1_red_col6_reply_col2_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col6) ->
+  opening_col6_reply_col1_red_col6_reply_col2_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col2_red_col6_subgoals_imply_child :
+  opening_col6_reply_col1_red_col6_reply_col2_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col1_red_col6_reply_col2_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col1_red_col6_reply_col2_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col2_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col1_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col2_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col1_red_col6_reply_col2_goal_if_red_col6_child.
+  apply opening_col6_reply_col1_red_col6_reply_col2_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col1_red_col6_reply_col3_state : game :=
+  apply_move opening_col6_reply_col1_red_col6_state col3.
+
+Definition opening_col6_reply_col1_red_col6_reply_col3_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col1_red_col6_reply_col3_state.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col3_turn_red :
+  next_turn opening_col6_reply_col1_red_col6_reply_col3_state = red.
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col3_state.
+  unfold opening_col6_reply_col1_red_col6_state.
+  unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col3_result_ongoing :
+  get_result opening_col6_reply_col1_red_col6_reply_col3_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col3_goal_unfold :
+  opening_col6_reply_col1_red_col6_reply_col3_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col1_red_col6_reply_col3_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col3_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col1_red_col6_reply_col3_result_ongoing.
+  - apply opening_col6_reply_col1_red_col6_reply_col3_turn_red.
+Qed.
+
+Definition opening_col6_reply_col1_red_col6_reply_col3_red_col6_state : game :=
+  apply_move opening_col6_reply_col1_red_col6_reply_col3_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col1_red_col6_reply_col3_red_col6 :
+  In opening_col6_reply_col1_red_col6_reply_col3_red_col6_state
+     (c4_next opening_col6_reply_col1_red_col6_reply_col3_state).
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col3_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col1_red_col6_reply_col3_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col1_red_col6_reply_col3_result_ongoing.
+  - unfold opening_col6_reply_col1_red_col6_reply_col3_state.
+    unfold opening_col6_reply_col1_red_col6_state.
+    unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col3_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col1_red_col6_reply_col3_red_col6_state ->
+  opening_col6_reply_col1_red_col6_reply_col3_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col1_red_col6_reply_col3_goal_unfold).
+  exists opening_col6_reply_col1_red_col6_reply_col3_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col1_red_col6_reply_col3_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col3_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col1_red_col6_reply_col3_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col3_red_col6_state.
+  unfold opening_col6_reply_col1_red_col6_reply_col3_state.
+  unfold opening_col6_reply_col1_red_col6_state.
+  unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col3_red_col6_result_ongoing :
+  get_result opening_col6_reply_col1_red_col6_reply_col3_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col1_red_col6_reply_col3_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state m)
+       (c4_next opening_col6_reply_col1_red_col6_reply_col3_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col1_red_col6_reply_col3_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col1_red_col6_reply_col3_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col1_red_col6_reply_col3_red_col6_state.
+    unfold opening_col6_reply_col1_red_col6_reply_col3_state.
+    unfold opening_col6_reply_col1_red_col6_state.
+    unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col3_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col1_red_col6_reply_col3_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col1_red_col6_reply_col3_red_col6_state
+                    opening_col6_reply_col1_red_col6_reply_col3_red_col6_result_ongoing
+                    opening_col6_reply_col1_red_col6_reply_col3_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col1_red_col6_reply_col3_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col1_red_col6_reply_col3_red_col6_state
+                    opening_col6_reply_col1_red_col6_reply_col3_red_col6_result_ongoing
+                    opening_col6_reply_col1_red_col6_reply_col3_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col1_red_col6_reply_col3_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col1_red_col6_reply_col3_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col1_red_col6_reply_col3_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col6).
+
+Lemma opening_col6_reply_col1_red_col6_reply_col3_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col6) ->
+  opening_col6_reply_col1_red_col6_reply_col3_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col3_red_col6_subgoals_imply_child :
+  opening_col6_reply_col1_red_col6_reply_col3_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col1_red_col6_reply_col3_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col1_red_col6_reply_col3_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col3_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col1_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col3_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col1_red_col6_reply_col3_goal_if_red_col6_child.
+  apply opening_col6_reply_col1_red_col6_reply_col3_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col1_red_col6_reply_col4_state : game :=
+  apply_move opening_col6_reply_col1_red_col6_state col4.
+
+Definition opening_col6_reply_col1_red_col6_reply_col4_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col1_red_col6_reply_col4_state.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col4_turn_red :
+  next_turn opening_col6_reply_col1_red_col6_reply_col4_state = red.
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col4_state.
+  unfold opening_col6_reply_col1_red_col6_state.
+  unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col4_result_ongoing :
+  get_result opening_col6_reply_col1_red_col6_reply_col4_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col4_goal_unfold :
+  opening_col6_reply_col1_red_col6_reply_col4_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col1_red_col6_reply_col4_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col4_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col1_red_col6_reply_col4_result_ongoing.
+  - apply opening_col6_reply_col1_red_col6_reply_col4_turn_red.
+Qed.
+
+Definition opening_col6_reply_col1_red_col6_reply_col4_red_col6_state : game :=
+  apply_move opening_col6_reply_col1_red_col6_reply_col4_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col1_red_col6_reply_col4_red_col6 :
+  In opening_col6_reply_col1_red_col6_reply_col4_red_col6_state
+     (c4_next opening_col6_reply_col1_red_col6_reply_col4_state).
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col4_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col1_red_col6_reply_col4_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col1_red_col6_reply_col4_result_ongoing.
+  - unfold opening_col6_reply_col1_red_col6_reply_col4_state.
+    unfold opening_col6_reply_col1_red_col6_state.
+    unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col4_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col1_red_col6_reply_col4_red_col6_state ->
+  opening_col6_reply_col1_red_col6_reply_col4_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col1_red_col6_reply_col4_goal_unfold).
+  exists opening_col6_reply_col1_red_col6_reply_col4_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col1_red_col6_reply_col4_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col4_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col1_red_col6_reply_col4_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col4_red_col6_state.
+  unfold opening_col6_reply_col1_red_col6_reply_col4_state.
+  unfold opening_col6_reply_col1_red_col6_state.
+  unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col4_red_col6_result_ongoing :
+  get_result opening_col6_reply_col1_red_col6_reply_col4_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col1_red_col6_reply_col4_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state m)
+       (c4_next opening_col6_reply_col1_red_col6_reply_col4_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col1_red_col6_reply_col4_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col1_red_col6_reply_col4_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col1_red_col6_reply_col4_red_col6_state.
+    unfold opening_col6_reply_col1_red_col6_reply_col4_state.
+    unfold opening_col6_reply_col1_red_col6_state.
+    unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col4_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col1_red_col6_reply_col4_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col1_red_col6_reply_col4_red_col6_state
+                    opening_col6_reply_col1_red_col6_reply_col4_red_col6_result_ongoing
+                    opening_col6_reply_col1_red_col6_reply_col4_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col1_red_col6_reply_col4_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col1_red_col6_reply_col4_red_col6_state
+                    opening_col6_reply_col1_red_col6_reply_col4_red_col6_result_ongoing
+                    opening_col6_reply_col1_red_col6_reply_col4_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col1_red_col6_reply_col4_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col1_red_col6_reply_col4_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col1_red_col6_reply_col4_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col6).
+
+Lemma opening_col6_reply_col1_red_col6_reply_col4_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col6) ->
+  opening_col6_reply_col1_red_col6_reply_col4_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col4_red_col6_subgoals_imply_child :
+  opening_col6_reply_col1_red_col6_reply_col4_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col1_red_col6_reply_col4_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col1_red_col6_reply_col4_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col4_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col1_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col4_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col1_red_col6_reply_col4_goal_if_red_col6_child.
+  apply opening_col6_reply_col1_red_col6_reply_col4_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col1_red_col6_reply_col5_state : game :=
+  apply_move opening_col6_reply_col1_red_col6_state col5.
+
+Definition opening_col6_reply_col1_red_col6_reply_col5_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col1_red_col6_reply_col5_state.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col5_turn_red :
+  next_turn opening_col6_reply_col1_red_col6_reply_col5_state = red.
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col5_state.
+  unfold opening_col6_reply_col1_red_col6_state.
+  unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col5_result_ongoing :
+  get_result opening_col6_reply_col1_red_col6_reply_col5_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col5_goal_unfold :
+  opening_col6_reply_col1_red_col6_reply_col5_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col1_red_col6_reply_col5_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col5_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col1_red_col6_reply_col5_result_ongoing.
+  - apply opening_col6_reply_col1_red_col6_reply_col5_turn_red.
+Qed.
+
+Definition opening_col6_reply_col1_red_col6_reply_col5_red_col6_state : game :=
+  apply_move opening_col6_reply_col1_red_col6_reply_col5_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col1_red_col6_reply_col5_red_col6 :
+  In opening_col6_reply_col1_red_col6_reply_col5_red_col6_state
+     (c4_next opening_col6_reply_col1_red_col6_reply_col5_state).
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col5_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col1_red_col6_reply_col5_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col1_red_col6_reply_col5_result_ongoing.
+  - unfold opening_col6_reply_col1_red_col6_reply_col5_state.
+    unfold opening_col6_reply_col1_red_col6_state.
+    unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col5_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col1_red_col6_reply_col5_red_col6_state ->
+  opening_col6_reply_col1_red_col6_reply_col5_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col1_red_col6_reply_col5_goal_unfold).
+  exists opening_col6_reply_col1_red_col6_reply_col5_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col1_red_col6_reply_col5_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col5_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col1_red_col6_reply_col5_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col5_red_col6_state.
+  unfold opening_col6_reply_col1_red_col6_reply_col5_state.
+  unfold opening_col6_reply_col1_red_col6_state.
+  unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col5_red_col6_result_ongoing :
+  get_result opening_col6_reply_col1_red_col6_reply_col5_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col1_red_col6_reply_col5_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state m)
+       (c4_next opening_col6_reply_col1_red_col6_reply_col5_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col1_red_col6_reply_col5_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col1_red_col6_reply_col5_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col1_red_col6_reply_col5_red_col6_state.
+    unfold opening_col6_reply_col1_red_col6_reply_col5_state.
+    unfold opening_col6_reply_col1_red_col6_state.
+    unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col5_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col1_red_col6_reply_col5_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col1_red_col6_reply_col5_red_col6_state
+                    opening_col6_reply_col1_red_col6_reply_col5_red_col6_result_ongoing
+                    opening_col6_reply_col1_red_col6_reply_col5_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col1_red_col6_reply_col5_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col1_red_col6_reply_col5_red_col6_state
+                    opening_col6_reply_col1_red_col6_reply_col5_red_col6_result_ongoing
+                    opening_col6_reply_col1_red_col6_reply_col5_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col1_red_col6_reply_col5_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col1_red_col6_reply_col5_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col1_red_col6_reply_col5_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col6).
+
+Lemma opening_col6_reply_col1_red_col6_reply_col5_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col1_red_col6_reply_col5_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col5_red_col6_subgoals_imply_child :
+  opening_col6_reply_col1_red_col6_reply_col5_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col1_red_col6_reply_col5_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col1_red_col6_reply_col5_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col5_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col1_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col5_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col1_red_col6_reply_col5_goal_if_red_col6_child.
+  apply opening_col6_reply_col1_red_col6_reply_col5_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col1_red_col6_reply_col6_state : game :=
+  apply_move opening_col6_reply_col1_red_col6_state col6.
+
+Definition opening_col6_reply_col1_red_col6_reply_col6_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col1_red_col6_reply_col6_state.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col6_turn_red :
+  next_turn opening_col6_reply_col1_red_col6_reply_col6_state = red.
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col6_state.
+  unfold opening_col6_reply_col1_red_col6_state.
+  unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col6_result_ongoing :
+  get_result opening_col6_reply_col1_red_col6_reply_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col6_goal_unfold :
+  opening_col6_reply_col1_red_col6_reply_col6_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col1_red_col6_reply_col6_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col6_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col1_red_col6_reply_col6_result_ongoing.
+  - apply opening_col6_reply_col1_red_col6_reply_col6_turn_red.
+Qed.
+
+Definition opening_col6_reply_col1_red_col6_reply_col6_red_col6_state : game :=
+  apply_move opening_col6_reply_col1_red_col6_reply_col6_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col1_red_col6_reply_col6_red_col6 :
+  In opening_col6_reply_col1_red_col6_reply_col6_red_col6_state
+     (c4_next opening_col6_reply_col1_red_col6_reply_col6_state).
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col6_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col1_red_col6_reply_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col1_red_col6_reply_col6_result_ongoing.
+  - unfold opening_col6_reply_col1_red_col6_reply_col6_state.
+    unfold opening_col6_reply_col1_red_col6_state.
+    unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col6_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col1_red_col6_reply_col6_red_col6_state ->
+  opening_col6_reply_col1_red_col6_reply_col6_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col1_red_col6_reply_col6_goal_unfold).
+  exists opening_col6_reply_col1_red_col6_reply_col6_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col1_red_col6_reply_col6_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col6_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col1_red_col6_reply_col6_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col1_red_col6_reply_col6_red_col6_state.
+  unfold opening_col6_reply_col1_red_col6_reply_col6_state.
+  unfold opening_col6_reply_col1_red_col6_state.
+  unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col6_red_col6_result_ongoing :
+  get_result opening_col6_reply_col1_red_col6_reply_col6_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col1_red_col6_reply_col6_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col1_red_col6_reply_col6_red_col6_state m)
+       (c4_next opening_col6_reply_col1_red_col6_reply_col6_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col1_red_col6_reply_col6_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col1_red_col6_reply_col6_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col1_red_col6_reply_col6_red_col6_state.
+    unfold opening_col6_reply_col1_red_col6_reply_col6_state.
+    unfold opening_col6_reply_col1_red_col6_state.
+    unfold opening_col6_reply_col1_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col6_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col1_red_col6_reply_col6_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col1_red_col6_reply_col6_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col1_red_col6_reply_col6_red_col6_state
+                    opening_col6_reply_col1_red_col6_reply_col6_red_col6_result_ongoing
+                    opening_col6_reply_col1_red_col6_reply_col6_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col1_red_col6_reply_col6_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col1_red_col6_reply_col6_red_col6_state
+                    opening_col6_reply_col1_red_col6_reply_col6_red_col6_result_ongoing
+                    opening_col6_reply_col1_red_col6_reply_col6_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col1_red_col6_reply_col6_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col1_red_col6_reply_col6_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col6_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col6_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col6_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col6_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col6_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col6_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col1_red_col6_reply_col6_red_col6_state col6).
+
+Lemma opening_col6_reply_col1_red_col6_reply_col6_red_col6_subgoals_imply_child :
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col1_red_col6_reply_col6_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col1_red_col6_reply_col6_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col6_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col6_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col1_red_col6_reply_col6_goal_if_red_col6_child.
+  apply opening_col6_reply_col1_red_col6_reply_col6_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col0_raw_if_subgoals :
+  opening_col6_reply_col1_red_col6_reply_col0_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col1_red_col6_state col0).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col1_red_col6_reply_col0_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col1_red_col6_reply_col0_state
+                  opening_col6_reply_col1_red_col6_reply_col0_result_ongoing
+                  opening_col6_reply_col1_red_col6_reply_col0_turn_red)).
+  exists opening_col6_reply_col1_red_col6_reply_col0_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col1_red_col6_reply_col0_red_col6.
+  - apply opening_col6_reply_col1_red_col6_reply_col0_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col1_raw_if_subgoals :
+  opening_col6_reply_col1_red_col6_reply_col1_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col1_red_col6_state col1).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col1_red_col6_reply_col1_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col1_red_col6_reply_col1_state
+                  opening_col6_reply_col1_red_col6_reply_col1_result_ongoing
+                  opening_col6_reply_col1_red_col6_reply_col1_turn_red)).
+  exists opening_col6_reply_col1_red_col6_reply_col1_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col1_red_col6_reply_col1_red_col6.
+  - apply opening_col6_reply_col1_red_col6_reply_col1_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col2_raw_if_subgoals :
+  opening_col6_reply_col1_red_col6_reply_col2_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col1_red_col6_state col2).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col1_red_col6_reply_col2_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col1_red_col6_reply_col2_state
+                  opening_col6_reply_col1_red_col6_reply_col2_result_ongoing
+                  opening_col6_reply_col1_red_col6_reply_col2_turn_red)).
+  exists opening_col6_reply_col1_red_col6_reply_col2_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col1_red_col6_reply_col2_red_col6.
+  - apply opening_col6_reply_col1_red_col6_reply_col2_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col3_raw_if_subgoals :
+  opening_col6_reply_col1_red_col6_reply_col3_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col1_red_col6_state col3).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col1_red_col6_reply_col3_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col1_red_col6_reply_col3_state
+                  opening_col6_reply_col1_red_col6_reply_col3_result_ongoing
+                  opening_col6_reply_col1_red_col6_reply_col3_turn_red)).
+  exists opening_col6_reply_col1_red_col6_reply_col3_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col1_red_col6_reply_col3_red_col6.
+  - apply opening_col6_reply_col1_red_col6_reply_col3_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col4_raw_if_subgoals :
+  opening_col6_reply_col1_red_col6_reply_col4_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col1_red_col6_state col4).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col1_red_col6_reply_col4_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col1_red_col6_reply_col4_state
+                  opening_col6_reply_col1_red_col6_reply_col4_result_ongoing
+                  opening_col6_reply_col1_red_col6_reply_col4_turn_red)).
+  exists opening_col6_reply_col1_red_col6_reply_col4_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col1_red_col6_reply_col4_red_col6.
+  - apply opening_col6_reply_col1_red_col6_reply_col4_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col5_raw_if_subgoals :
+  opening_col6_reply_col1_red_col6_reply_col5_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col1_red_col6_state col5).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col1_red_col6_reply_col5_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col1_red_col6_reply_col5_state
+                  opening_col6_reply_col1_red_col6_reply_col5_result_ongoing
+                  opening_col6_reply_col1_red_col6_reply_col5_turn_red)).
+  exists opening_col6_reply_col1_red_col6_reply_col5_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col1_red_col6_reply_col5_red_col6.
+  - apply opening_col6_reply_col1_red_col6_reply_col5_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col1_red_col6_reply_col6_raw_if_subgoals :
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col1_red_col6_state col6).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col1_red_col6_reply_col6_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col1_red_col6_reply_col6_state
+                  opening_col6_reply_col1_red_col6_reply_col6_result_ongoing
+                  opening_col6_reply_col1_red_col6_reply_col6_turn_red)).
+  exists opening_col6_reply_col1_red_col6_reply_col6_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col1_red_col6_reply_col6_red_col6.
+  - apply opening_col6_reply_col1_red_col6_reply_col6_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col1_raw_if_all_reply_subgoal_blocks :
+  opening_col6_reply_col1_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 opening_col6_reply_col1_state.
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6.
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 39
+                  opening_col6_reply_col1_state
+                  opening_col6_reply_col1_result_ongoing
+                  opening_col6_reply_col1_turn_red)).
+  exists opening_col6_reply_col1_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col1_red_col6.
+  - apply (proj2 (red_can_force_win_unfold_ongoing_yellow 38
+                    opening_col6_reply_col1_red_col6_state
+                    opening_col6_reply_col1_red_col6_result_ongoing
+                    opening_col6_reply_col1_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col1_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col1_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    destruct m.
+    + apply opening_col6_reply_col1_red_col6_reply_col0_raw_if_subgoals; exact H0.
+    + apply opening_col6_reply_col1_red_col6_reply_col1_raw_if_subgoals; exact H1.
+    + apply opening_col6_reply_col1_red_col6_reply_col2_raw_if_subgoals; exact H2.
+    + apply opening_col6_reply_col1_red_col6_reply_col3_raw_if_subgoals; exact H3.
+    + apply opening_col6_reply_col1_red_col6_reply_col4_raw_if_subgoals; exact H4.
+    + apply opening_col6_reply_col1_red_col6_reply_col5_raw_if_subgoals; exact H5.
+    + apply opening_col6_reply_col1_red_col6_reply_col6_raw_if_subgoals; exact H6.
+Qed.
+
+Lemma opening_col6_reply_col1_goal_if_all_reply_subgoal_blocks :
+  opening_col6_reply_col1_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_goal.
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6.
+  apply opening_col6_reply_col1_raw_if_all_reply_subgoal_blocks; assumption.
+Qed.
+
+Lemma opening_col6_reply_col1_firstconj_if_all_reply_subgoal_blocks :
+  opening_col6_reply_col1_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col1).
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6.
+  change (red_can_force_win 40 opening_col6_reply_col1_state).
+  apply opening_col6_reply_col1_raw_if_all_reply_subgoal_blocks; assumption.
+Qed.
+
+Lemma opening_col6_reply_col1_firstconj_if_col1col0to5_col6_and_col1col6_block :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col1).
+Proof.
+  intros H10c6 H11c6 H12c6 H13c6 H14c6 H15c6 H16.
+  apply opening_col6_reply_col1_firstconj_if_all_reply_subgoal_blocks.
+  - apply opening_col6_reply_col1_red_col6_reply_col0_red_col6_reply_subgoals_if_col6.
+    exact H10c6.
+  - apply opening_col6_reply_col1_red_col6_reply_col1_red_col6_reply_subgoals_if_col6.
+    exact H11c6.
+  - apply opening_col6_reply_col1_red_col6_reply_col2_red_col6_reply_subgoals_if_col6.
+    exact H12c6.
+  - apply opening_col6_reply_col1_red_col6_reply_col3_red_col6_reply_subgoals_if_col6.
+    exact H13c6.
+  - apply opening_col6_reply_col1_red_col6_reply_col4_red_col6_reply_subgoals_if_col6.
+    exact H14c6.
+  - apply opening_col6_reply_col1_red_col6_reply_col5_red_col6_reply_subgoals_if_col6.
+    exact H15c6.
+  - exact H16.
+Qed.
+
+Definition opening_col6_reply_col2_state : game :=
+  apply_move opening_col6_state col2.
+
+Definition opening_col6_reply_col2_goal : Prop :=
+  red_can_force_win 40 opening_col6_reply_col2_state.
+
+Lemma opening_col6_reply_col2_turn_red :
+  next_turn opening_col6_reply_col2_state = red.
+Proof.
+  unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_result_ongoing :
+  get_result opening_col6_reply_col2_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_goal_unfold :
+  opening_col6_reply_col2_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col2_state) /\
+    red_can_force_win 39 g.
+Proof.
+  unfold opening_col6_reply_col2_goal.
+  change 40 with (S 39).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col2_result_ongoing.
+  - apply opening_col6_reply_col2_turn_red.
+Qed.
+
+Definition opening_col6_reply_col2_red_col6_state : game :=
+  apply_move opening_col6_reply_col2_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col2_red_col6 :
+  In opening_col6_reply_col2_red_col6_state
+     (c4_next opening_col6_reply_col2_state).
+Proof.
+  unfold opening_col6_reply_col2_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col2_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col2_result_ongoing.
+  - unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col2_goal_if_red_col6_child :
+  red_can_force_win 39 opening_col6_reply_col2_red_col6_state ->
+  opening_col6_reply_col2_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col2_goal_unfold).
+  exists opening_col6_reply_col2_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col2_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col2_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col2_red_col6_state.
+  unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_result_ongoing :
+  get_result opening_col6_reply_col2_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col2_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col2_red_col6_state m)
+       (c4_next opening_col6_reply_col2_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col2_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col2_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col2_red_col6_state.
+    unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_move_form :
+  red_can_force_win 39 opening_col6_reply_col2_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 38
+      (apply_move opening_col6_reply_col2_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 38
+                    opening_col6_reply_col2_red_col6_state
+                    opening_col6_reply_col2_red_col6_result_ongoing
+                    opening_col6_reply_col2_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col2_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 38
+                    opening_col6_reply_col2_red_col6_state
+                    opening_col6_reply_col2_red_col6_result_ongoing
+                    opening_col6_reply_col2_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col2_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col2_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col2_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 38 (apply_move opening_col6_reply_col2_red_col6_state col0) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col2_red_col6_state col1) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col2_red_col6_state col2) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col2_red_col6_state col3) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col2_red_col6_state col4) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col2_red_col6_state col5) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col2_red_col6_state col6).
+
+Lemma opening_col6_reply_col2_red_col6_subgoals_imply_child :
+  opening_col6_reply_col2_red_col6_reply_subgoals ->
+  red_can_force_win 39 opening_col6_reply_col2_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col2_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col2_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col2_goal_if_red_col6_child.
+  apply opening_col6_reply_col2_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col2_red_col6_reply_col0_state : game :=
+  apply_move opening_col6_reply_col2_red_col6_state col0.
+
+Definition opening_col6_reply_col2_red_col6_reply_col0_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col2_red_col6_reply_col0_state.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col0_turn_red :
+  next_turn opening_col6_reply_col2_red_col6_reply_col0_state = red.
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col0_state.
+  unfold opening_col6_reply_col2_red_col6_state.
+  unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col0_result_ongoing :
+  get_result opening_col6_reply_col2_red_col6_reply_col0_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col0_goal_unfold :
+  opening_col6_reply_col2_red_col6_reply_col0_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col2_red_col6_reply_col0_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col0_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col2_red_col6_reply_col0_result_ongoing.
+  - apply opening_col6_reply_col2_red_col6_reply_col0_turn_red.
+Qed.
+
+Definition opening_col6_reply_col2_red_col6_reply_col0_red_col6_state : game :=
+  apply_move opening_col6_reply_col2_red_col6_reply_col0_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col2_red_col6_reply_col0_red_col6 :
+  In opening_col6_reply_col2_red_col6_reply_col0_red_col6_state
+     (c4_next opening_col6_reply_col2_red_col6_reply_col0_state).
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col0_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col2_red_col6_reply_col0_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col2_red_col6_reply_col0_result_ongoing.
+  - unfold opening_col6_reply_col2_red_col6_reply_col0_state.
+    unfold opening_col6_reply_col2_red_col6_state.
+    unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col0_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col2_red_col6_reply_col0_red_col6_state ->
+  opening_col6_reply_col2_red_col6_reply_col0_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col2_red_col6_reply_col0_goal_unfold).
+  exists opening_col6_reply_col2_red_col6_reply_col0_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col2_red_col6_reply_col0_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col0_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col2_red_col6_reply_col0_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col0_red_col6_state.
+  unfold opening_col6_reply_col2_red_col6_reply_col0_state.
+  unfold opening_col6_reply_col2_red_col6_state.
+  unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col0_red_col6_result_ongoing :
+  get_result opening_col6_reply_col2_red_col6_reply_col0_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col2_red_col6_reply_col0_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col2_red_col6_reply_col0_red_col6_state m)
+       (c4_next opening_col6_reply_col2_red_col6_reply_col0_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col2_red_col6_reply_col0_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col2_red_col6_reply_col0_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col2_red_col6_reply_col0_red_col6_state.
+    unfold opening_col6_reply_col2_red_col6_reply_col0_state.
+    unfold opening_col6_reply_col2_red_col6_state.
+    unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col0_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col2_red_col6_reply_col0_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col2_red_col6_reply_col0_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col2_red_col6_reply_col0_red_col6_state
+                    opening_col6_reply_col2_red_col6_reply_col0_red_col6_result_ongoing
+                    opening_col6_reply_col2_red_col6_reply_col0_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col2_red_col6_reply_col0_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col2_red_col6_reply_col0_red_col6_state
+                    opening_col6_reply_col2_red_col6_reply_col0_red_col6_result_ongoing
+                    opening_col6_reply_col2_red_col6_reply_col0_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col2_red_col6_reply_col0_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col2_red_col6_reply_col0_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col2_red_col6_reply_col0_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col6).
+
+Lemma opening_col6_reply_col2_red_col6_reply_col0_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col6) ->
+  opening_col6_reply_col2_red_col6_reply_col0_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col0_red_col6_subgoals_imply_child :
+  opening_col6_reply_col2_red_col6_reply_col0_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col2_red_col6_reply_col0_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col2_red_col6_reply_col0_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col0_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col2_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col0_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col2_red_col6_reply_col0_goal_if_red_col6_child.
+  apply opening_col6_reply_col2_red_col6_reply_col0_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col2_red_col6_reply_col1_state : game :=
+  apply_move opening_col6_reply_col2_red_col6_state col1.
+
+Definition opening_col6_reply_col2_red_col6_reply_col1_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col2_red_col6_reply_col1_state.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col1_turn_red :
+  next_turn opening_col6_reply_col2_red_col6_reply_col1_state = red.
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col1_state.
+  unfold opening_col6_reply_col2_red_col6_state.
+  unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col1_result_ongoing :
+  get_result opening_col6_reply_col2_red_col6_reply_col1_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col1_goal_unfold :
+  opening_col6_reply_col2_red_col6_reply_col1_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col2_red_col6_reply_col1_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col1_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col2_red_col6_reply_col1_result_ongoing.
+  - apply opening_col6_reply_col2_red_col6_reply_col1_turn_red.
+Qed.
+
+Definition opening_col6_reply_col2_red_col6_reply_col1_red_col6_state : game :=
+  apply_move opening_col6_reply_col2_red_col6_reply_col1_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col2_red_col6_reply_col1_red_col6 :
+  In opening_col6_reply_col2_red_col6_reply_col1_red_col6_state
+     (c4_next opening_col6_reply_col2_red_col6_reply_col1_state).
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col1_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col2_red_col6_reply_col1_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col2_red_col6_reply_col1_result_ongoing.
+  - unfold opening_col6_reply_col2_red_col6_reply_col1_state.
+    unfold opening_col6_reply_col2_red_col6_state.
+    unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col1_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col2_red_col6_reply_col1_red_col6_state ->
+  opening_col6_reply_col2_red_col6_reply_col1_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col2_red_col6_reply_col1_goal_unfold).
+  exists opening_col6_reply_col2_red_col6_reply_col1_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col2_red_col6_reply_col1_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col1_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col2_red_col6_reply_col1_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col1_red_col6_state.
+  unfold opening_col6_reply_col2_red_col6_reply_col1_state.
+  unfold opening_col6_reply_col2_red_col6_state.
+  unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col1_red_col6_result_ongoing :
+  get_result opening_col6_reply_col2_red_col6_reply_col1_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col2_red_col6_reply_col1_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col2_red_col6_reply_col1_red_col6_state m)
+       (c4_next opening_col6_reply_col2_red_col6_reply_col1_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col2_red_col6_reply_col1_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col2_red_col6_reply_col1_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col2_red_col6_reply_col1_red_col6_state.
+    unfold opening_col6_reply_col2_red_col6_reply_col1_state.
+    unfold opening_col6_reply_col2_red_col6_state.
+    unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col1_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col2_red_col6_reply_col1_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col2_red_col6_reply_col1_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col2_red_col6_reply_col1_red_col6_state
+                    opening_col6_reply_col2_red_col6_reply_col1_red_col6_result_ongoing
+                    opening_col6_reply_col2_red_col6_reply_col1_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col2_red_col6_reply_col1_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col2_red_col6_reply_col1_red_col6_state
+                    opening_col6_reply_col2_red_col6_reply_col1_red_col6_result_ongoing
+                    opening_col6_reply_col2_red_col6_reply_col1_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col2_red_col6_reply_col1_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col2_red_col6_reply_col1_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col2_red_col6_reply_col1_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col6).
+
+Lemma opening_col6_reply_col2_red_col6_reply_col1_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col6) ->
+  opening_col6_reply_col2_red_col6_reply_col1_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col1_red_col6_subgoals_imply_child :
+  opening_col6_reply_col2_red_col6_reply_col1_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col2_red_col6_reply_col1_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col2_red_col6_reply_col1_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col1_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col2_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col1_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col2_red_col6_reply_col1_goal_if_red_col6_child.
+  apply opening_col6_reply_col2_red_col6_reply_col1_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col2_red_col6_reply_col2_state : game :=
+  apply_move opening_col6_reply_col2_red_col6_state col2.
+
+Definition opening_col6_reply_col2_red_col6_reply_col2_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col2_red_col6_reply_col2_state.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col2_turn_red :
+  next_turn opening_col6_reply_col2_red_col6_reply_col2_state = red.
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col2_state.
+  unfold opening_col6_reply_col2_red_col6_state.
+  unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col2_result_ongoing :
+  get_result opening_col6_reply_col2_red_col6_reply_col2_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col2_goal_unfold :
+  opening_col6_reply_col2_red_col6_reply_col2_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col2_red_col6_reply_col2_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col2_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col2_red_col6_reply_col2_result_ongoing.
+  - apply opening_col6_reply_col2_red_col6_reply_col2_turn_red.
+Qed.
+
+Definition opening_col6_reply_col2_red_col6_reply_col2_red_col6_state : game :=
+  apply_move opening_col6_reply_col2_red_col6_reply_col2_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col2_red_col6_reply_col2_red_col6 :
+  In opening_col6_reply_col2_red_col6_reply_col2_red_col6_state
+     (c4_next opening_col6_reply_col2_red_col6_reply_col2_state).
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col2_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col2_red_col6_reply_col2_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col2_red_col6_reply_col2_result_ongoing.
+  - unfold opening_col6_reply_col2_red_col6_reply_col2_state.
+    unfold opening_col6_reply_col2_red_col6_state.
+    unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col2_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col2_red_col6_reply_col2_red_col6_state ->
+  opening_col6_reply_col2_red_col6_reply_col2_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col2_red_col6_reply_col2_goal_unfold).
+  exists opening_col6_reply_col2_red_col6_reply_col2_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col2_red_col6_reply_col2_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col2_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col2_red_col6_reply_col2_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col2_red_col6_state.
+  unfold opening_col6_reply_col2_red_col6_reply_col2_state.
+  unfold opening_col6_reply_col2_red_col6_state.
+  unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col2_red_col6_result_ongoing :
+  get_result opening_col6_reply_col2_red_col6_reply_col2_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col2_red_col6_reply_col2_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state m)
+       (c4_next opening_col6_reply_col2_red_col6_reply_col2_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col2_red_col6_reply_col2_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col2_red_col6_reply_col2_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col2_red_col6_reply_col2_red_col6_state.
+    unfold opening_col6_reply_col2_red_col6_reply_col2_state.
+    unfold opening_col6_reply_col2_red_col6_state.
+    unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col2_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col2_red_col6_reply_col2_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col2_red_col6_reply_col2_red_col6_state
+                    opening_col6_reply_col2_red_col6_reply_col2_red_col6_result_ongoing
+                    opening_col6_reply_col2_red_col6_reply_col2_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col2_red_col6_reply_col2_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col2_red_col6_reply_col2_red_col6_state
+                    opening_col6_reply_col2_red_col6_reply_col2_red_col6_result_ongoing
+                    opening_col6_reply_col2_red_col6_reply_col2_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col2_red_col6_reply_col2_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col2_red_col6_reply_col2_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col2_red_col6_reply_col2_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col6).
+
+Lemma opening_col6_reply_col2_red_col6_reply_col2_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col6) ->
+  opening_col6_reply_col2_red_col6_reply_col2_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col2_red_col6_subgoals_imply_child :
+  opening_col6_reply_col2_red_col6_reply_col2_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col2_red_col6_reply_col2_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col2_red_col6_reply_col2_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col2_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col2_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col2_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col2_red_col6_reply_col2_goal_if_red_col6_child.
+  apply opening_col6_reply_col2_red_col6_reply_col2_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col2_red_col6_reply_col3_state : game :=
+  apply_move opening_col6_reply_col2_red_col6_state col3.
+
+Definition opening_col6_reply_col2_red_col6_reply_col3_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col2_red_col6_reply_col3_state.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col3_turn_red :
+  next_turn opening_col6_reply_col2_red_col6_reply_col3_state = red.
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col3_state.
+  unfold opening_col6_reply_col2_red_col6_state.
+  unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col3_result_ongoing :
+  get_result opening_col6_reply_col2_red_col6_reply_col3_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col3_goal_unfold :
+  opening_col6_reply_col2_red_col6_reply_col3_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col2_red_col6_reply_col3_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col3_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col2_red_col6_reply_col3_result_ongoing.
+  - apply opening_col6_reply_col2_red_col6_reply_col3_turn_red.
+Qed.
+
+Definition opening_col6_reply_col2_red_col6_reply_col3_red_col6_state : game :=
+  apply_move opening_col6_reply_col2_red_col6_reply_col3_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col2_red_col6_reply_col3_red_col6 :
+  In opening_col6_reply_col2_red_col6_reply_col3_red_col6_state
+     (c4_next opening_col6_reply_col2_red_col6_reply_col3_state).
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col3_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col2_red_col6_reply_col3_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col2_red_col6_reply_col3_result_ongoing.
+  - unfold opening_col6_reply_col2_red_col6_reply_col3_state.
+    unfold opening_col6_reply_col2_red_col6_state.
+    unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col3_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col2_red_col6_reply_col3_red_col6_state ->
+  opening_col6_reply_col2_red_col6_reply_col3_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col2_red_col6_reply_col3_goal_unfold).
+  exists opening_col6_reply_col2_red_col6_reply_col3_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col2_red_col6_reply_col3_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col3_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col2_red_col6_reply_col3_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col3_red_col6_state.
+  unfold opening_col6_reply_col2_red_col6_reply_col3_state.
+  unfold opening_col6_reply_col2_red_col6_state.
+  unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col3_red_col6_result_ongoing :
+  get_result opening_col6_reply_col2_red_col6_reply_col3_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col2_red_col6_reply_col3_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state m)
+       (c4_next opening_col6_reply_col2_red_col6_reply_col3_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col2_red_col6_reply_col3_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col2_red_col6_reply_col3_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col2_red_col6_reply_col3_red_col6_state.
+    unfold opening_col6_reply_col2_red_col6_reply_col3_state.
+    unfold opening_col6_reply_col2_red_col6_state.
+    unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col3_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col2_red_col6_reply_col3_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col2_red_col6_reply_col3_red_col6_state
+                    opening_col6_reply_col2_red_col6_reply_col3_red_col6_result_ongoing
+                    opening_col6_reply_col2_red_col6_reply_col3_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col2_red_col6_reply_col3_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col2_red_col6_reply_col3_red_col6_state
+                    opening_col6_reply_col2_red_col6_reply_col3_red_col6_result_ongoing
+                    opening_col6_reply_col2_red_col6_reply_col3_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col2_red_col6_reply_col3_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col2_red_col6_reply_col3_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col2_red_col6_reply_col3_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col6).
+
+Lemma opening_col6_reply_col2_red_col6_reply_col3_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col6) ->
+  opening_col6_reply_col2_red_col6_reply_col3_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col3_red_col6_subgoals_imply_child :
+  opening_col6_reply_col2_red_col6_reply_col3_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col2_red_col6_reply_col3_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col2_red_col6_reply_col3_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col3_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col2_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col3_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col2_red_col6_reply_col3_goal_if_red_col6_child.
+  apply opening_col6_reply_col2_red_col6_reply_col3_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col2_red_col6_reply_col4_state : game :=
+  apply_move opening_col6_reply_col2_red_col6_state col4.
+
+Definition opening_col6_reply_col2_red_col6_reply_col4_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col2_red_col6_reply_col4_state.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col4_turn_red :
+  next_turn opening_col6_reply_col2_red_col6_reply_col4_state = red.
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col4_state.
+  unfold opening_col6_reply_col2_red_col6_state.
+  unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col4_result_ongoing :
+  get_result opening_col6_reply_col2_red_col6_reply_col4_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col4_goal_unfold :
+  opening_col6_reply_col2_red_col6_reply_col4_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col2_red_col6_reply_col4_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col4_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col2_red_col6_reply_col4_result_ongoing.
+  - apply opening_col6_reply_col2_red_col6_reply_col4_turn_red.
+Qed.
+
+Definition opening_col6_reply_col2_red_col6_reply_col4_red_col6_state : game :=
+  apply_move opening_col6_reply_col2_red_col6_reply_col4_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col2_red_col6_reply_col4_red_col6 :
+  In opening_col6_reply_col2_red_col6_reply_col4_red_col6_state
+     (c4_next opening_col6_reply_col2_red_col6_reply_col4_state).
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col4_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col2_red_col6_reply_col4_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col2_red_col6_reply_col4_result_ongoing.
+  - unfold opening_col6_reply_col2_red_col6_reply_col4_state.
+    unfold opening_col6_reply_col2_red_col6_state.
+    unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col4_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col2_red_col6_reply_col4_red_col6_state ->
+  opening_col6_reply_col2_red_col6_reply_col4_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col2_red_col6_reply_col4_goal_unfold).
+  exists opening_col6_reply_col2_red_col6_reply_col4_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col2_red_col6_reply_col4_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col4_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col2_red_col6_reply_col4_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col4_red_col6_state.
+  unfold opening_col6_reply_col2_red_col6_reply_col4_state.
+  unfold opening_col6_reply_col2_red_col6_state.
+  unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col4_red_col6_result_ongoing :
+  get_result opening_col6_reply_col2_red_col6_reply_col4_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col2_red_col6_reply_col4_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state m)
+       (c4_next opening_col6_reply_col2_red_col6_reply_col4_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col2_red_col6_reply_col4_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col2_red_col6_reply_col4_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col2_red_col6_reply_col4_red_col6_state.
+    unfold opening_col6_reply_col2_red_col6_reply_col4_state.
+    unfold opening_col6_reply_col2_red_col6_state.
+    unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col4_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col2_red_col6_reply_col4_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col2_red_col6_reply_col4_red_col6_state
+                    opening_col6_reply_col2_red_col6_reply_col4_red_col6_result_ongoing
+                    opening_col6_reply_col2_red_col6_reply_col4_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col2_red_col6_reply_col4_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col2_red_col6_reply_col4_red_col6_state
+                    opening_col6_reply_col2_red_col6_reply_col4_red_col6_result_ongoing
+                    opening_col6_reply_col2_red_col6_reply_col4_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col2_red_col6_reply_col4_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col2_red_col6_reply_col4_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col2_red_col6_reply_col4_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col6).
+
+Lemma opening_col6_reply_col2_red_col6_reply_col4_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col6) ->
+  opening_col6_reply_col2_red_col6_reply_col4_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col4_red_col6_subgoals_imply_child :
+  opening_col6_reply_col2_red_col6_reply_col4_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col2_red_col6_reply_col4_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col2_red_col6_reply_col4_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col4_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col2_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col4_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col2_red_col6_reply_col4_goal_if_red_col6_child.
+  apply opening_col6_reply_col2_red_col6_reply_col4_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col2_red_col6_reply_col5_state : game :=
+  apply_move opening_col6_reply_col2_red_col6_state col5.
+
+Definition opening_col6_reply_col2_red_col6_reply_col5_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col2_red_col6_reply_col5_state.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col5_turn_red :
+  next_turn opening_col6_reply_col2_red_col6_reply_col5_state = red.
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col5_state.
+  unfold opening_col6_reply_col2_red_col6_state.
+  unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col5_result_ongoing :
+  get_result opening_col6_reply_col2_red_col6_reply_col5_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col5_goal_unfold :
+  opening_col6_reply_col2_red_col6_reply_col5_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col2_red_col6_reply_col5_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col5_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col2_red_col6_reply_col5_result_ongoing.
+  - apply opening_col6_reply_col2_red_col6_reply_col5_turn_red.
+Qed.
+
+Definition opening_col6_reply_col2_red_col6_reply_col5_red_col6_state : game :=
+  apply_move opening_col6_reply_col2_red_col6_reply_col5_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col2_red_col6_reply_col5_red_col6 :
+  In opening_col6_reply_col2_red_col6_reply_col5_red_col6_state
+     (c4_next opening_col6_reply_col2_red_col6_reply_col5_state).
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col5_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col2_red_col6_reply_col5_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col2_red_col6_reply_col5_result_ongoing.
+  - unfold opening_col6_reply_col2_red_col6_reply_col5_state.
+    unfold opening_col6_reply_col2_red_col6_state.
+    unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col5_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col2_red_col6_reply_col5_red_col6_state ->
+  opening_col6_reply_col2_red_col6_reply_col5_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col2_red_col6_reply_col5_goal_unfold).
+  exists opening_col6_reply_col2_red_col6_reply_col5_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col2_red_col6_reply_col5_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col5_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col2_red_col6_reply_col5_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col5_red_col6_state.
+  unfold opening_col6_reply_col2_red_col6_reply_col5_state.
+  unfold opening_col6_reply_col2_red_col6_state.
+  unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col5_red_col6_result_ongoing :
+  get_result opening_col6_reply_col2_red_col6_reply_col5_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col2_red_col6_reply_col5_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state m)
+       (c4_next opening_col6_reply_col2_red_col6_reply_col5_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col2_red_col6_reply_col5_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col2_red_col6_reply_col5_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col2_red_col6_reply_col5_red_col6_state.
+    unfold opening_col6_reply_col2_red_col6_reply_col5_state.
+    unfold opening_col6_reply_col2_red_col6_state.
+    unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col5_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col2_red_col6_reply_col5_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col2_red_col6_reply_col5_red_col6_state
+                    opening_col6_reply_col2_red_col6_reply_col5_red_col6_result_ongoing
+                    opening_col6_reply_col2_red_col6_reply_col5_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col2_red_col6_reply_col5_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col2_red_col6_reply_col5_red_col6_state
+                    opening_col6_reply_col2_red_col6_reply_col5_red_col6_result_ongoing
+                    opening_col6_reply_col2_red_col6_reply_col5_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col2_red_col6_reply_col5_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col2_red_col6_reply_col5_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col2_red_col6_reply_col5_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col6).
+
+Lemma opening_col6_reply_col2_red_col6_reply_col5_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col2_red_col6_reply_col5_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col5_red_col6_subgoals_imply_child :
+  opening_col6_reply_col2_red_col6_reply_col5_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col2_red_col6_reply_col5_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col2_red_col6_reply_col5_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col5_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col2_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col5_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col2_red_col6_reply_col5_goal_if_red_col6_child.
+  apply opening_col6_reply_col2_red_col6_reply_col5_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col2_red_col6_reply_col6_state : game :=
+  apply_move opening_col6_reply_col2_red_col6_state col6.
+
+Definition opening_col6_reply_col2_red_col6_reply_col6_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col2_red_col6_reply_col6_state.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col6_turn_red :
+  next_turn opening_col6_reply_col2_red_col6_reply_col6_state = red.
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col6_state.
+  unfold opening_col6_reply_col2_red_col6_state.
+  unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col6_result_ongoing :
+  get_result opening_col6_reply_col2_red_col6_reply_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col6_goal_unfold :
+  opening_col6_reply_col2_red_col6_reply_col6_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col2_red_col6_reply_col6_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col6_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col2_red_col6_reply_col6_result_ongoing.
+  - apply opening_col6_reply_col2_red_col6_reply_col6_turn_red.
+Qed.
+
+Definition opening_col6_reply_col2_red_col6_reply_col6_red_col6_state : game :=
+  apply_move opening_col6_reply_col2_red_col6_reply_col6_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col2_red_col6_reply_col6_red_col6 :
+  In opening_col6_reply_col2_red_col6_reply_col6_red_col6_state
+     (c4_next opening_col6_reply_col2_red_col6_reply_col6_state).
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col6_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col2_red_col6_reply_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col2_red_col6_reply_col6_result_ongoing.
+  - unfold opening_col6_reply_col2_red_col6_reply_col6_state.
+    unfold opening_col6_reply_col2_red_col6_state.
+    unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col6_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col2_red_col6_reply_col6_red_col6_state ->
+  opening_col6_reply_col2_red_col6_reply_col6_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col2_red_col6_reply_col6_goal_unfold).
+  exists opening_col6_reply_col2_red_col6_reply_col6_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col2_red_col6_reply_col6_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col6_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col2_red_col6_reply_col6_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col2_red_col6_reply_col6_red_col6_state.
+  unfold opening_col6_reply_col2_red_col6_reply_col6_state.
+  unfold opening_col6_reply_col2_red_col6_state.
+  unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col6_red_col6_result_ongoing :
+  get_result opening_col6_reply_col2_red_col6_reply_col6_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col2_red_col6_reply_col6_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col2_red_col6_reply_col6_red_col6_state m)
+       (c4_next opening_col6_reply_col2_red_col6_reply_col6_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col2_red_col6_reply_col6_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col2_red_col6_reply_col6_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col2_red_col6_reply_col6_red_col6_state.
+    unfold opening_col6_reply_col2_red_col6_reply_col6_state.
+    unfold opening_col6_reply_col2_red_col6_state.
+    unfold opening_col6_reply_col2_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col6_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col2_red_col6_reply_col6_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col2_red_col6_reply_col6_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col2_red_col6_reply_col6_red_col6_state
+                    opening_col6_reply_col2_red_col6_reply_col6_red_col6_result_ongoing
+                    opening_col6_reply_col2_red_col6_reply_col6_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col2_red_col6_reply_col6_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col2_red_col6_reply_col6_red_col6_state
+                    opening_col6_reply_col2_red_col6_reply_col6_red_col6_result_ongoing
+                    opening_col6_reply_col2_red_col6_reply_col6_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col2_red_col6_reply_col6_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col2_red_col6_reply_col6_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col6_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col6_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col6_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col6_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col6_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col6_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col2_red_col6_reply_col6_red_col6_state col6).
+
+Lemma opening_col6_reply_col2_red_col6_reply_col6_red_col6_subgoals_imply_child :
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col2_red_col6_reply_col6_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col2_red_col6_reply_col6_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col6_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col6_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col2_red_col6_reply_col6_goal_if_red_col6_child.
+  apply opening_col6_reply_col2_red_col6_reply_col6_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col0_raw_if_subgoals :
+  opening_col6_reply_col2_red_col6_reply_col0_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col2_red_col6_state col0).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col2_red_col6_reply_col0_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col2_red_col6_reply_col0_state
+                  opening_col6_reply_col2_red_col6_reply_col0_result_ongoing
+                  opening_col6_reply_col2_red_col6_reply_col0_turn_red)).
+  exists opening_col6_reply_col2_red_col6_reply_col0_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col2_red_col6_reply_col0_red_col6.
+  - apply opening_col6_reply_col2_red_col6_reply_col0_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col1_raw_if_subgoals :
+  opening_col6_reply_col2_red_col6_reply_col1_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col2_red_col6_state col1).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col2_red_col6_reply_col1_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col2_red_col6_reply_col1_state
+                  opening_col6_reply_col2_red_col6_reply_col1_result_ongoing
+                  opening_col6_reply_col2_red_col6_reply_col1_turn_red)).
+  exists opening_col6_reply_col2_red_col6_reply_col1_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col2_red_col6_reply_col1_red_col6.
+  - apply opening_col6_reply_col2_red_col6_reply_col1_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col2_raw_if_subgoals :
+  opening_col6_reply_col2_red_col6_reply_col2_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col2_red_col6_state col2).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col2_red_col6_reply_col2_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col2_red_col6_reply_col2_state
+                  opening_col6_reply_col2_red_col6_reply_col2_result_ongoing
+                  opening_col6_reply_col2_red_col6_reply_col2_turn_red)).
+  exists opening_col6_reply_col2_red_col6_reply_col2_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col2_red_col6_reply_col2_red_col6.
+  - apply opening_col6_reply_col2_red_col6_reply_col2_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col3_raw_if_subgoals :
+  opening_col6_reply_col2_red_col6_reply_col3_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col2_red_col6_state col3).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col2_red_col6_reply_col3_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col2_red_col6_reply_col3_state
+                  opening_col6_reply_col2_red_col6_reply_col3_result_ongoing
+                  opening_col6_reply_col2_red_col6_reply_col3_turn_red)).
+  exists opening_col6_reply_col2_red_col6_reply_col3_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col2_red_col6_reply_col3_red_col6.
+  - apply opening_col6_reply_col2_red_col6_reply_col3_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col4_raw_if_subgoals :
+  opening_col6_reply_col2_red_col6_reply_col4_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col2_red_col6_state col4).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col2_red_col6_reply_col4_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col2_red_col6_reply_col4_state
+                  opening_col6_reply_col2_red_col6_reply_col4_result_ongoing
+                  opening_col6_reply_col2_red_col6_reply_col4_turn_red)).
+  exists opening_col6_reply_col2_red_col6_reply_col4_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col2_red_col6_reply_col4_red_col6.
+  - apply opening_col6_reply_col2_red_col6_reply_col4_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col5_raw_if_subgoals :
+  opening_col6_reply_col2_red_col6_reply_col5_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col2_red_col6_state col5).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col2_red_col6_reply_col5_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col2_red_col6_reply_col5_state
+                  opening_col6_reply_col2_red_col6_reply_col5_result_ongoing
+                  opening_col6_reply_col2_red_col6_reply_col5_turn_red)).
+  exists opening_col6_reply_col2_red_col6_reply_col5_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col2_red_col6_reply_col5_red_col6.
+  - apply opening_col6_reply_col2_red_col6_reply_col5_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col2_red_col6_reply_col6_raw_if_subgoals :
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col2_red_col6_state col6).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col2_red_col6_reply_col6_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col2_red_col6_reply_col6_state
+                  opening_col6_reply_col2_red_col6_reply_col6_result_ongoing
+                  opening_col6_reply_col2_red_col6_reply_col6_turn_red)).
+  exists opening_col6_reply_col2_red_col6_reply_col6_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col2_red_col6_reply_col6_red_col6.
+  - apply opening_col6_reply_col2_red_col6_reply_col6_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col2_raw_if_all_reply_subgoal_blocks :
+  opening_col6_reply_col2_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 opening_col6_reply_col2_state.
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6.
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 39
+                  opening_col6_reply_col2_state
+                  opening_col6_reply_col2_result_ongoing
+                  opening_col6_reply_col2_turn_red)).
+  exists opening_col6_reply_col2_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col2_red_col6.
+  - apply (proj2 (red_can_force_win_unfold_ongoing_yellow 38
+                    opening_col6_reply_col2_red_col6_state
+                    opening_col6_reply_col2_red_col6_result_ongoing
+                    opening_col6_reply_col2_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col2_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col2_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    destruct m.
+    + apply opening_col6_reply_col2_red_col6_reply_col0_raw_if_subgoals; exact H0.
+    + apply opening_col6_reply_col2_red_col6_reply_col1_raw_if_subgoals; exact H1.
+    + apply opening_col6_reply_col2_red_col6_reply_col2_raw_if_subgoals; exact H2.
+    + apply opening_col6_reply_col2_red_col6_reply_col3_raw_if_subgoals; exact H3.
+    + apply opening_col6_reply_col2_red_col6_reply_col4_raw_if_subgoals; exact H4.
+    + apply opening_col6_reply_col2_red_col6_reply_col5_raw_if_subgoals; exact H5.
+    + apply opening_col6_reply_col2_red_col6_reply_col6_raw_if_subgoals; exact H6.
+Qed.
+
+Lemma opening_col6_reply_col2_goal_if_all_reply_subgoal_blocks :
+  opening_col6_reply_col2_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_goal.
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6.
+  apply opening_col6_reply_col2_raw_if_all_reply_subgoal_blocks; assumption.
+Qed.
+
+Lemma opening_col6_reply_col2_firstconj_if_all_reply_subgoal_blocks :
+  opening_col6_reply_col2_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col2).
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6.
+  change (red_can_force_win 40 opening_col6_reply_col2_state).
+  apply opening_col6_reply_col2_raw_if_all_reply_subgoal_blocks; assumption.
+Qed.
+
+Lemma opening_col6_reply_col2_firstconj_if_col2col0to5_col6_and_col2col6_block :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col2).
+Proof.
+  intros H20c6 H21c6 H22c6 H23c6 H24c6 H25c6 H26.
+  apply opening_col6_reply_col2_firstconj_if_all_reply_subgoal_blocks.
+  - apply opening_col6_reply_col2_red_col6_reply_col0_red_col6_reply_subgoals_if_col6.
+    exact H20c6.
+  - apply opening_col6_reply_col2_red_col6_reply_col1_red_col6_reply_subgoals_if_col6.
+    exact H21c6.
+  - apply opening_col6_reply_col2_red_col6_reply_col2_red_col6_reply_subgoals_if_col6.
+    exact H22c6.
+  - apply opening_col6_reply_col2_red_col6_reply_col3_red_col6_reply_subgoals_if_col6.
+    exact H23c6.
+  - apply opening_col6_reply_col2_red_col6_reply_col4_red_col6_reply_subgoals_if_col6.
+    exact H24c6.
+  - apply opening_col6_reply_col2_red_col6_reply_col5_red_col6_reply_subgoals_if_col6.
+    exact H25c6.
+  - exact H26.
+Qed.
+
+Definition opening_col6_reply_col3_state : game :=
+  apply_move opening_col6_state col3.
+
+Definition opening_col6_reply_col3_goal : Prop :=
+  red_can_force_win 40 opening_col6_reply_col3_state.
+
+Lemma opening_col6_reply_col3_turn_red :
+  next_turn opening_col6_reply_col3_state = red.
+Proof.
+  unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_result_ongoing :
+  get_result opening_col6_reply_col3_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_goal_unfold :
+  opening_col6_reply_col3_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col3_state) /\
+    red_can_force_win 39 g.
+Proof.
+  unfold opening_col6_reply_col3_goal.
+  change 40 with (S 39).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col3_result_ongoing.
+  - apply opening_col6_reply_col3_turn_red.
+Qed.
+
+Definition opening_col6_reply_col3_red_col6_state : game :=
+  apply_move opening_col6_reply_col3_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col3_red_col6 :
+  In opening_col6_reply_col3_red_col6_state
+     (c4_next opening_col6_reply_col3_state).
+Proof.
+  unfold opening_col6_reply_col3_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col3_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col3_result_ongoing.
+  - unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col3_goal_if_red_col6_child :
+  red_can_force_win 39 opening_col6_reply_col3_red_col6_state ->
+  opening_col6_reply_col3_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col3_goal_unfold).
+  exists opening_col6_reply_col3_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col3_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col3_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col3_red_col6_state.
+  unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_result_ongoing :
+  get_result opening_col6_reply_col3_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col3_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col3_red_col6_state m)
+       (c4_next opening_col6_reply_col3_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col3_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col3_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col3_red_col6_state.
+    unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_move_form :
+  red_can_force_win 39 opening_col6_reply_col3_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 38
+      (apply_move opening_col6_reply_col3_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 38
+                    opening_col6_reply_col3_red_col6_state
+                    opening_col6_reply_col3_red_col6_result_ongoing
+                    opening_col6_reply_col3_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col3_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 38
+                    opening_col6_reply_col3_red_col6_state
+                    opening_col6_reply_col3_red_col6_result_ongoing
+                    opening_col6_reply_col3_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col3_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col3_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col3_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 38 (apply_move opening_col6_reply_col3_red_col6_state col0) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col3_red_col6_state col1) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col3_red_col6_state col2) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col3_red_col6_state col3) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col3_red_col6_state col4) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col3_red_col6_state col5) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col3_red_col6_state col6).
+
+Lemma opening_col6_reply_col3_red_col6_subgoals_imply_child :
+  opening_col6_reply_col3_red_col6_reply_subgoals ->
+  red_can_force_win 39 opening_col6_reply_col3_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col3_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col3_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col3_goal_if_red_col6_child.
+  apply opening_col6_reply_col3_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col3_red_col6_reply_col0_state : game :=
+  apply_move opening_col6_reply_col3_red_col6_state col0.
+
+Definition opening_col6_reply_col3_red_col6_reply_col0_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col3_red_col6_reply_col0_state.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col0_turn_red :
+  next_turn opening_col6_reply_col3_red_col6_reply_col0_state = red.
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col0_state.
+  unfold opening_col6_reply_col3_red_col6_state.
+  unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col0_result_ongoing :
+  get_result opening_col6_reply_col3_red_col6_reply_col0_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col0_goal_unfold :
+  opening_col6_reply_col3_red_col6_reply_col0_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col3_red_col6_reply_col0_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col0_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col3_red_col6_reply_col0_result_ongoing.
+  - apply opening_col6_reply_col3_red_col6_reply_col0_turn_red.
+Qed.
+
+Definition opening_col6_reply_col3_red_col6_reply_col0_red_col6_state : game :=
+  apply_move opening_col6_reply_col3_red_col6_reply_col0_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col3_red_col6_reply_col0_red_col6 :
+  In opening_col6_reply_col3_red_col6_reply_col0_red_col6_state
+     (c4_next opening_col6_reply_col3_red_col6_reply_col0_state).
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col0_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col3_red_col6_reply_col0_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col3_red_col6_reply_col0_result_ongoing.
+  - unfold opening_col6_reply_col3_red_col6_reply_col0_state.
+    unfold opening_col6_reply_col3_red_col6_state.
+    unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col0_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col3_red_col6_reply_col0_red_col6_state ->
+  opening_col6_reply_col3_red_col6_reply_col0_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col3_red_col6_reply_col0_goal_unfold).
+  exists opening_col6_reply_col3_red_col6_reply_col0_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col3_red_col6_reply_col0_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col0_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col3_red_col6_reply_col0_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col0_red_col6_state.
+  unfold opening_col6_reply_col3_red_col6_reply_col0_state.
+  unfold opening_col6_reply_col3_red_col6_state.
+  unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col0_red_col6_result_ongoing :
+  get_result opening_col6_reply_col3_red_col6_reply_col0_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col3_red_col6_reply_col0_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col3_red_col6_reply_col0_red_col6_state m)
+       (c4_next opening_col6_reply_col3_red_col6_reply_col0_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col3_red_col6_reply_col0_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col3_red_col6_reply_col0_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col3_red_col6_reply_col0_red_col6_state.
+    unfold opening_col6_reply_col3_red_col6_reply_col0_state.
+    unfold opening_col6_reply_col3_red_col6_state.
+    unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col0_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col3_red_col6_reply_col0_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col3_red_col6_reply_col0_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col3_red_col6_reply_col0_red_col6_state
+                    opening_col6_reply_col3_red_col6_reply_col0_red_col6_result_ongoing
+                    opening_col6_reply_col3_red_col6_reply_col0_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col3_red_col6_reply_col0_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col3_red_col6_reply_col0_red_col6_state
+                    opening_col6_reply_col3_red_col6_reply_col0_red_col6_result_ongoing
+                    opening_col6_reply_col3_red_col6_reply_col0_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col3_red_col6_reply_col0_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col3_red_col6_reply_col0_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col3_red_col6_reply_col0_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col6).
+
+Lemma opening_col6_reply_col3_red_col6_reply_col0_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col6) ->
+  opening_col6_reply_col3_red_col6_reply_col0_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col0_red_col6_subgoals_imply_child :
+  opening_col6_reply_col3_red_col6_reply_col0_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col3_red_col6_reply_col0_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col3_red_col6_reply_col0_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col0_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col3_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col0_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col3_red_col6_reply_col0_goal_if_red_col6_child.
+  apply opening_col6_reply_col3_red_col6_reply_col0_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col3_red_col6_reply_col1_state : game :=
+  apply_move opening_col6_reply_col3_red_col6_state col1.
+
+Definition opening_col6_reply_col3_red_col6_reply_col1_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col3_red_col6_reply_col1_state.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col1_turn_red :
+  next_turn opening_col6_reply_col3_red_col6_reply_col1_state = red.
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col1_state.
+  unfold opening_col6_reply_col3_red_col6_state.
+  unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col1_result_ongoing :
+  get_result opening_col6_reply_col3_red_col6_reply_col1_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col1_goal_unfold :
+  opening_col6_reply_col3_red_col6_reply_col1_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col3_red_col6_reply_col1_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col1_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col3_red_col6_reply_col1_result_ongoing.
+  - apply opening_col6_reply_col3_red_col6_reply_col1_turn_red.
+Qed.
+
+Definition opening_col6_reply_col3_red_col6_reply_col1_red_col6_state : game :=
+  apply_move opening_col6_reply_col3_red_col6_reply_col1_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col3_red_col6_reply_col1_red_col6 :
+  In opening_col6_reply_col3_red_col6_reply_col1_red_col6_state
+     (c4_next opening_col6_reply_col3_red_col6_reply_col1_state).
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col1_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col3_red_col6_reply_col1_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col3_red_col6_reply_col1_result_ongoing.
+  - unfold opening_col6_reply_col3_red_col6_reply_col1_state.
+    unfold opening_col6_reply_col3_red_col6_state.
+    unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col1_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col3_red_col6_reply_col1_red_col6_state ->
+  opening_col6_reply_col3_red_col6_reply_col1_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col3_red_col6_reply_col1_goal_unfold).
+  exists opening_col6_reply_col3_red_col6_reply_col1_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col3_red_col6_reply_col1_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col1_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col3_red_col6_reply_col1_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col1_red_col6_state.
+  unfold opening_col6_reply_col3_red_col6_reply_col1_state.
+  unfold opening_col6_reply_col3_red_col6_state.
+  unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col1_red_col6_result_ongoing :
+  get_result opening_col6_reply_col3_red_col6_reply_col1_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col3_red_col6_reply_col1_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col3_red_col6_reply_col1_red_col6_state m)
+       (c4_next opening_col6_reply_col3_red_col6_reply_col1_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col3_red_col6_reply_col1_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col3_red_col6_reply_col1_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col3_red_col6_reply_col1_red_col6_state.
+    unfold opening_col6_reply_col3_red_col6_reply_col1_state.
+    unfold opening_col6_reply_col3_red_col6_state.
+    unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col1_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col3_red_col6_reply_col1_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col3_red_col6_reply_col1_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col3_red_col6_reply_col1_red_col6_state
+                    opening_col6_reply_col3_red_col6_reply_col1_red_col6_result_ongoing
+                    opening_col6_reply_col3_red_col6_reply_col1_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col3_red_col6_reply_col1_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col3_red_col6_reply_col1_red_col6_state
+                    opening_col6_reply_col3_red_col6_reply_col1_red_col6_result_ongoing
+                    opening_col6_reply_col3_red_col6_reply_col1_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col3_red_col6_reply_col1_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col3_red_col6_reply_col1_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col3_red_col6_reply_col1_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col6).
+
+Lemma opening_col6_reply_col3_red_col6_reply_col1_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col6) ->
+  opening_col6_reply_col3_red_col6_reply_col1_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col1_red_col6_subgoals_imply_child :
+  opening_col6_reply_col3_red_col6_reply_col1_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col3_red_col6_reply_col1_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col3_red_col6_reply_col1_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col1_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col3_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col1_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col3_red_col6_reply_col1_goal_if_red_col6_child.
+  apply opening_col6_reply_col3_red_col6_reply_col1_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col3_red_col6_reply_col2_state : game :=
+  apply_move opening_col6_reply_col3_red_col6_state col2.
+
+Definition opening_col6_reply_col3_red_col6_reply_col2_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col3_red_col6_reply_col2_state.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col2_turn_red :
+  next_turn opening_col6_reply_col3_red_col6_reply_col2_state = red.
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col2_state.
+  unfold opening_col6_reply_col3_red_col6_state.
+  unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col2_result_ongoing :
+  get_result opening_col6_reply_col3_red_col6_reply_col2_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col2_goal_unfold :
+  opening_col6_reply_col3_red_col6_reply_col2_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col3_red_col6_reply_col2_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col2_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col3_red_col6_reply_col2_result_ongoing.
+  - apply opening_col6_reply_col3_red_col6_reply_col2_turn_red.
+Qed.
+
+Definition opening_col6_reply_col3_red_col6_reply_col2_red_col6_state : game :=
+  apply_move opening_col6_reply_col3_red_col6_reply_col2_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col3_red_col6_reply_col2_red_col6 :
+  In opening_col6_reply_col3_red_col6_reply_col2_red_col6_state
+     (c4_next opening_col6_reply_col3_red_col6_reply_col2_state).
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col2_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col3_red_col6_reply_col2_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col3_red_col6_reply_col2_result_ongoing.
+  - unfold opening_col6_reply_col3_red_col6_reply_col2_state.
+    unfold opening_col6_reply_col3_red_col6_state.
+    unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col2_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col3_red_col6_reply_col2_red_col6_state ->
+  opening_col6_reply_col3_red_col6_reply_col2_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col3_red_col6_reply_col2_goal_unfold).
+  exists opening_col6_reply_col3_red_col6_reply_col2_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col3_red_col6_reply_col2_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col2_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col3_red_col6_reply_col2_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col2_red_col6_state.
+  unfold opening_col6_reply_col3_red_col6_reply_col2_state.
+  unfold opening_col6_reply_col3_red_col6_state.
+  unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col2_red_col6_result_ongoing :
+  get_result opening_col6_reply_col3_red_col6_reply_col2_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col3_red_col6_reply_col2_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col3_red_col6_reply_col2_red_col6_state m)
+       (c4_next opening_col6_reply_col3_red_col6_reply_col2_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col3_red_col6_reply_col2_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col3_red_col6_reply_col2_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col3_red_col6_reply_col2_red_col6_state.
+    unfold opening_col6_reply_col3_red_col6_reply_col2_state.
+    unfold opening_col6_reply_col3_red_col6_state.
+    unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col2_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col3_red_col6_reply_col2_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col3_red_col6_reply_col2_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col3_red_col6_reply_col2_red_col6_state
+                    opening_col6_reply_col3_red_col6_reply_col2_red_col6_result_ongoing
+                    opening_col6_reply_col3_red_col6_reply_col2_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col3_red_col6_reply_col2_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col3_red_col6_reply_col2_red_col6_state
+                    opening_col6_reply_col3_red_col6_reply_col2_red_col6_result_ongoing
+                    opening_col6_reply_col3_red_col6_reply_col2_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col3_red_col6_reply_col2_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col3_red_col6_reply_col2_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col3_red_col6_reply_col2_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col6).
+
+Lemma opening_col6_reply_col3_red_col6_reply_col2_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col6) ->
+  opening_col6_reply_col3_red_col6_reply_col2_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col2_red_col6_subgoals_imply_child :
+  opening_col6_reply_col3_red_col6_reply_col2_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col3_red_col6_reply_col2_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col3_red_col6_reply_col2_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col2_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col3_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col2_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col3_red_col6_reply_col2_goal_if_red_col6_child.
+  apply opening_col6_reply_col3_red_col6_reply_col2_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col3_red_col6_reply_col3_state : game :=
+  apply_move opening_col6_reply_col3_red_col6_state col3.
+
+Definition opening_col6_reply_col3_red_col6_reply_col3_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col3_red_col6_reply_col3_state.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col3_turn_red :
+  next_turn opening_col6_reply_col3_red_col6_reply_col3_state = red.
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col3_state.
+  unfold opening_col6_reply_col3_red_col6_state.
+  unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col3_result_ongoing :
+  get_result opening_col6_reply_col3_red_col6_reply_col3_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col3_goal_unfold :
+  opening_col6_reply_col3_red_col6_reply_col3_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col3_red_col6_reply_col3_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col3_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col3_red_col6_reply_col3_result_ongoing.
+  - apply opening_col6_reply_col3_red_col6_reply_col3_turn_red.
+Qed.
+
+Definition opening_col6_reply_col3_red_col6_reply_col3_red_col6_state : game :=
+  apply_move opening_col6_reply_col3_red_col6_reply_col3_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col3_red_col6_reply_col3_red_col6 :
+  In opening_col6_reply_col3_red_col6_reply_col3_red_col6_state
+     (c4_next opening_col6_reply_col3_red_col6_reply_col3_state).
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col3_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col3_red_col6_reply_col3_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col3_red_col6_reply_col3_result_ongoing.
+  - unfold opening_col6_reply_col3_red_col6_reply_col3_state.
+    unfold opening_col6_reply_col3_red_col6_state.
+    unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col3_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col3_red_col6_reply_col3_red_col6_state ->
+  opening_col6_reply_col3_red_col6_reply_col3_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col3_red_col6_reply_col3_goal_unfold).
+  exists opening_col6_reply_col3_red_col6_reply_col3_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col3_red_col6_reply_col3_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col3_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col3_red_col6_reply_col3_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col3_red_col6_state.
+  unfold opening_col6_reply_col3_red_col6_reply_col3_state.
+  unfold opening_col6_reply_col3_red_col6_state.
+  unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col3_red_col6_result_ongoing :
+  get_result opening_col6_reply_col3_red_col6_reply_col3_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col3_red_col6_reply_col3_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col3_red_col6_reply_col3_red_col6_state m)
+       (c4_next opening_col6_reply_col3_red_col6_reply_col3_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col3_red_col6_reply_col3_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col3_red_col6_reply_col3_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col3_red_col6_reply_col3_red_col6_state.
+    unfold opening_col6_reply_col3_red_col6_reply_col3_state.
+    unfold opening_col6_reply_col3_red_col6_state.
+    unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col3_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col3_red_col6_reply_col3_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col3_red_col6_reply_col3_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col3_red_col6_reply_col3_red_col6_state
+                    opening_col6_reply_col3_red_col6_reply_col3_red_col6_result_ongoing
+                    opening_col6_reply_col3_red_col6_reply_col3_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col3_red_col6_reply_col3_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col3_red_col6_reply_col3_red_col6_state
+                    opening_col6_reply_col3_red_col6_reply_col3_red_col6_result_ongoing
+                    opening_col6_reply_col3_red_col6_reply_col3_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col3_red_col6_reply_col3_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col3_red_col6_reply_col3_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col3_red_col6_reply_col3_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col6).
+
+Lemma opening_col6_reply_col3_red_col6_reply_col3_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col6) ->
+  opening_col6_reply_col3_red_col6_reply_col3_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col3_red_col6_subgoals_imply_child :
+  opening_col6_reply_col3_red_col6_reply_col3_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col3_red_col6_reply_col3_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col3_red_col6_reply_col3_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col3_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col3_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col3_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col3_red_col6_reply_col3_goal_if_red_col6_child.
+  apply opening_col6_reply_col3_red_col6_reply_col3_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col3_red_col6_reply_col4_state : game :=
+  apply_move opening_col6_reply_col3_red_col6_state col4.
+
+Definition opening_col6_reply_col3_red_col6_reply_col4_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col3_red_col6_reply_col4_state.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col4_turn_red :
+  next_turn opening_col6_reply_col3_red_col6_reply_col4_state = red.
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col4_state.
+  unfold opening_col6_reply_col3_red_col6_state.
+  unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col4_result_ongoing :
+  get_result opening_col6_reply_col3_red_col6_reply_col4_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col4_goal_unfold :
+  opening_col6_reply_col3_red_col6_reply_col4_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col3_red_col6_reply_col4_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col4_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col3_red_col6_reply_col4_result_ongoing.
+  - apply opening_col6_reply_col3_red_col6_reply_col4_turn_red.
+Qed.
+
+Definition opening_col6_reply_col3_red_col6_reply_col4_red_col6_state : game :=
+  apply_move opening_col6_reply_col3_red_col6_reply_col4_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col3_red_col6_reply_col4_red_col6 :
+  In opening_col6_reply_col3_red_col6_reply_col4_red_col6_state
+     (c4_next opening_col6_reply_col3_red_col6_reply_col4_state).
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col4_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col3_red_col6_reply_col4_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col3_red_col6_reply_col4_result_ongoing.
+  - unfold opening_col6_reply_col3_red_col6_reply_col4_state.
+    unfold opening_col6_reply_col3_red_col6_state.
+    unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col4_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col3_red_col6_reply_col4_red_col6_state ->
+  opening_col6_reply_col3_red_col6_reply_col4_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col3_red_col6_reply_col4_goal_unfold).
+  exists opening_col6_reply_col3_red_col6_reply_col4_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col3_red_col6_reply_col4_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col4_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col3_red_col6_reply_col4_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col4_red_col6_state.
+  unfold opening_col6_reply_col3_red_col6_reply_col4_state.
+  unfold opening_col6_reply_col3_red_col6_state.
+  unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col4_red_col6_result_ongoing :
+  get_result opening_col6_reply_col3_red_col6_reply_col4_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col3_red_col6_reply_col4_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col3_red_col6_reply_col4_red_col6_state m)
+       (c4_next opening_col6_reply_col3_red_col6_reply_col4_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col3_red_col6_reply_col4_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col3_red_col6_reply_col4_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col3_red_col6_reply_col4_red_col6_state.
+    unfold opening_col6_reply_col3_red_col6_reply_col4_state.
+    unfold opening_col6_reply_col3_red_col6_state.
+    unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col4_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col3_red_col6_reply_col4_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col3_red_col6_reply_col4_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col3_red_col6_reply_col4_red_col6_state
+                    opening_col6_reply_col3_red_col6_reply_col4_red_col6_result_ongoing
+                    opening_col6_reply_col3_red_col6_reply_col4_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col3_red_col6_reply_col4_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col3_red_col6_reply_col4_red_col6_state
+                    opening_col6_reply_col3_red_col6_reply_col4_red_col6_result_ongoing
+                    opening_col6_reply_col3_red_col6_reply_col4_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col3_red_col6_reply_col4_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col3_red_col6_reply_col4_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col3_red_col6_reply_col4_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col6).
+
+Lemma opening_col6_reply_col3_red_col6_reply_col4_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col6) ->
+  opening_col6_reply_col3_red_col6_reply_col4_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col4_red_col6_subgoals_imply_child :
+  opening_col6_reply_col3_red_col6_reply_col4_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col3_red_col6_reply_col4_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col3_red_col6_reply_col4_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col4_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col3_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col4_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col3_red_col6_reply_col4_goal_if_red_col6_child.
+  apply opening_col6_reply_col3_red_col6_reply_col4_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col3_red_col6_reply_col5_state : game :=
+  apply_move opening_col6_reply_col3_red_col6_state col5.
+
+Definition opening_col6_reply_col3_red_col6_reply_col5_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col3_red_col6_reply_col5_state.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col5_turn_red :
+  next_turn opening_col6_reply_col3_red_col6_reply_col5_state = red.
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col5_state.
+  unfold opening_col6_reply_col3_red_col6_state.
+  unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col5_result_ongoing :
+  get_result opening_col6_reply_col3_red_col6_reply_col5_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col5_goal_unfold :
+  opening_col6_reply_col3_red_col6_reply_col5_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col3_red_col6_reply_col5_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col5_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col3_red_col6_reply_col5_result_ongoing.
+  - apply opening_col6_reply_col3_red_col6_reply_col5_turn_red.
+Qed.
+
+Definition opening_col6_reply_col3_red_col6_reply_col5_red_col6_state : game :=
+  apply_move opening_col6_reply_col3_red_col6_reply_col5_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col3_red_col6_reply_col5_red_col6 :
+  In opening_col6_reply_col3_red_col6_reply_col5_red_col6_state
+     (c4_next opening_col6_reply_col3_red_col6_reply_col5_state).
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col5_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col3_red_col6_reply_col5_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col3_red_col6_reply_col5_result_ongoing.
+  - unfold opening_col6_reply_col3_red_col6_reply_col5_state.
+    unfold opening_col6_reply_col3_red_col6_state.
+    unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col5_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col3_red_col6_reply_col5_red_col6_state ->
+  opening_col6_reply_col3_red_col6_reply_col5_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col3_red_col6_reply_col5_goal_unfold).
+  exists opening_col6_reply_col3_red_col6_reply_col5_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col3_red_col6_reply_col5_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col5_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col3_red_col6_reply_col5_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col5_red_col6_state.
+  unfold opening_col6_reply_col3_red_col6_reply_col5_state.
+  unfold opening_col6_reply_col3_red_col6_state.
+  unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col5_red_col6_result_ongoing :
+  get_result opening_col6_reply_col3_red_col6_reply_col5_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col3_red_col6_reply_col5_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col3_red_col6_reply_col5_red_col6_state m)
+       (c4_next opening_col6_reply_col3_red_col6_reply_col5_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col3_red_col6_reply_col5_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col3_red_col6_reply_col5_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col3_red_col6_reply_col5_red_col6_state.
+    unfold opening_col6_reply_col3_red_col6_reply_col5_state.
+    unfold opening_col6_reply_col3_red_col6_state.
+    unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col5_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col3_red_col6_reply_col5_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col3_red_col6_reply_col5_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col3_red_col6_reply_col5_red_col6_state
+                    opening_col6_reply_col3_red_col6_reply_col5_red_col6_result_ongoing
+                    opening_col6_reply_col3_red_col6_reply_col5_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col3_red_col6_reply_col5_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col3_red_col6_reply_col5_red_col6_state
+                    opening_col6_reply_col3_red_col6_reply_col5_red_col6_result_ongoing
+                    opening_col6_reply_col3_red_col6_reply_col5_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col3_red_col6_reply_col5_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col3_red_col6_reply_col5_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col3_red_col6_reply_col5_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col6).
+
+Lemma opening_col6_reply_col3_red_col6_reply_col5_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col3_red_col6_reply_col5_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col5_red_col6_subgoals_imply_child :
+  opening_col6_reply_col3_red_col6_reply_col5_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col3_red_col6_reply_col5_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col3_red_col6_reply_col5_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col5_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col3_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col5_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col3_red_col6_reply_col5_goal_if_red_col6_child.
+  apply opening_col6_reply_col3_red_col6_reply_col5_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col3_red_col6_reply_col6_state : game :=
+  apply_move opening_col6_reply_col3_red_col6_state col6.
+
+Definition opening_col6_reply_col3_red_col6_reply_col6_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col3_red_col6_reply_col6_state.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col6_turn_red :
+  next_turn opening_col6_reply_col3_red_col6_reply_col6_state = red.
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col6_state.
+  unfold opening_col6_reply_col3_red_col6_state.
+  unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col6_result_ongoing :
+  get_result opening_col6_reply_col3_red_col6_reply_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col6_goal_unfold :
+  opening_col6_reply_col3_red_col6_reply_col6_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col3_red_col6_reply_col6_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col6_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col3_red_col6_reply_col6_result_ongoing.
+  - apply opening_col6_reply_col3_red_col6_reply_col6_turn_red.
+Qed.
+
+Definition opening_col6_reply_col3_red_col6_reply_col6_red_col6_state : game :=
+  apply_move opening_col6_reply_col3_red_col6_reply_col6_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col3_red_col6_reply_col6_red_col6 :
+  In opening_col6_reply_col3_red_col6_reply_col6_red_col6_state
+     (c4_next opening_col6_reply_col3_red_col6_reply_col6_state).
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col6_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col3_red_col6_reply_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col3_red_col6_reply_col6_result_ongoing.
+  - unfold opening_col6_reply_col3_red_col6_reply_col6_state.
+    unfold opening_col6_reply_col3_red_col6_state.
+    unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col6_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col3_red_col6_reply_col6_red_col6_state ->
+  opening_col6_reply_col3_red_col6_reply_col6_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col3_red_col6_reply_col6_goal_unfold).
+  exists opening_col6_reply_col3_red_col6_reply_col6_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col3_red_col6_reply_col6_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col6_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col3_red_col6_reply_col6_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col3_red_col6_reply_col6_red_col6_state.
+  unfold opening_col6_reply_col3_red_col6_reply_col6_state.
+  unfold opening_col6_reply_col3_red_col6_state.
+  unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col6_red_col6_result_ongoing :
+  get_result opening_col6_reply_col3_red_col6_reply_col6_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col3_red_col6_reply_col6_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col3_red_col6_reply_col6_red_col6_state m)
+       (c4_next opening_col6_reply_col3_red_col6_reply_col6_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col3_red_col6_reply_col6_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col3_red_col6_reply_col6_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col3_red_col6_reply_col6_red_col6_state.
+    unfold opening_col6_reply_col3_red_col6_reply_col6_state.
+    unfold opening_col6_reply_col3_red_col6_state.
+    unfold opening_col6_reply_col3_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col6_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col3_red_col6_reply_col6_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col3_red_col6_reply_col6_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col3_red_col6_reply_col6_red_col6_state
+                    opening_col6_reply_col3_red_col6_reply_col6_red_col6_result_ongoing
+                    opening_col6_reply_col3_red_col6_reply_col6_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col3_red_col6_reply_col6_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col3_red_col6_reply_col6_red_col6_state
+                    opening_col6_reply_col3_red_col6_reply_col6_red_col6_result_ongoing
+                    opening_col6_reply_col3_red_col6_reply_col6_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col3_red_col6_reply_col6_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col3_red_col6_reply_col6_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col6_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col6_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col6_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col6_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col6_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col6_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col3_red_col6_reply_col6_red_col6_state col6).
+
+Lemma opening_col6_reply_col3_red_col6_reply_col6_red_col6_subgoals_imply_child :
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col3_red_col6_reply_col6_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col3_red_col6_reply_col6_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col6_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col6_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col3_red_col6_reply_col6_goal_if_red_col6_child.
+  apply opening_col6_reply_col3_red_col6_reply_col6_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col0_raw_if_subgoals :
+  opening_col6_reply_col3_red_col6_reply_col0_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col3_red_col6_state col0).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col3_red_col6_reply_col0_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col3_red_col6_reply_col0_state
+                  opening_col6_reply_col3_red_col6_reply_col0_result_ongoing
+                  opening_col6_reply_col3_red_col6_reply_col0_turn_red)).
+  exists opening_col6_reply_col3_red_col6_reply_col0_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col3_red_col6_reply_col0_red_col6.
+  - apply opening_col6_reply_col3_red_col6_reply_col0_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col1_raw_if_subgoals :
+  opening_col6_reply_col3_red_col6_reply_col1_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col3_red_col6_state col1).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col3_red_col6_reply_col1_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col3_red_col6_reply_col1_state
+                  opening_col6_reply_col3_red_col6_reply_col1_result_ongoing
+                  opening_col6_reply_col3_red_col6_reply_col1_turn_red)).
+  exists opening_col6_reply_col3_red_col6_reply_col1_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col3_red_col6_reply_col1_red_col6.
+  - apply opening_col6_reply_col3_red_col6_reply_col1_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col2_raw_if_subgoals :
+  opening_col6_reply_col3_red_col6_reply_col2_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col3_red_col6_state col2).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col3_red_col6_reply_col2_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col3_red_col6_reply_col2_state
+                  opening_col6_reply_col3_red_col6_reply_col2_result_ongoing
+                  opening_col6_reply_col3_red_col6_reply_col2_turn_red)).
+  exists opening_col6_reply_col3_red_col6_reply_col2_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col3_red_col6_reply_col2_red_col6.
+  - apply opening_col6_reply_col3_red_col6_reply_col2_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col3_raw_if_subgoals :
+  opening_col6_reply_col3_red_col6_reply_col3_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col3_red_col6_state col3).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col3_red_col6_reply_col3_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col3_red_col6_reply_col3_state
+                  opening_col6_reply_col3_red_col6_reply_col3_result_ongoing
+                  opening_col6_reply_col3_red_col6_reply_col3_turn_red)).
+  exists opening_col6_reply_col3_red_col6_reply_col3_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col3_red_col6_reply_col3_red_col6.
+  - apply opening_col6_reply_col3_red_col6_reply_col3_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col4_raw_if_subgoals :
+  opening_col6_reply_col3_red_col6_reply_col4_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col3_red_col6_state col4).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col3_red_col6_reply_col4_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col3_red_col6_reply_col4_state
+                  opening_col6_reply_col3_red_col6_reply_col4_result_ongoing
+                  opening_col6_reply_col3_red_col6_reply_col4_turn_red)).
+  exists opening_col6_reply_col3_red_col6_reply_col4_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col3_red_col6_reply_col4_red_col6.
+  - apply opening_col6_reply_col3_red_col6_reply_col4_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col5_raw_if_subgoals :
+  opening_col6_reply_col3_red_col6_reply_col5_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col3_red_col6_state col5).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col3_red_col6_reply_col5_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col3_red_col6_reply_col5_state
+                  opening_col6_reply_col3_red_col6_reply_col5_result_ongoing
+                  opening_col6_reply_col3_red_col6_reply_col5_turn_red)).
+  exists opening_col6_reply_col3_red_col6_reply_col5_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col3_red_col6_reply_col5_red_col6.
+  - apply opening_col6_reply_col3_red_col6_reply_col5_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col3_red_col6_reply_col6_raw_if_subgoals :
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col3_red_col6_state col6).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col3_red_col6_reply_col6_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col3_red_col6_reply_col6_state
+                  opening_col6_reply_col3_red_col6_reply_col6_result_ongoing
+                  opening_col6_reply_col3_red_col6_reply_col6_turn_red)).
+  exists opening_col6_reply_col3_red_col6_reply_col6_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col3_red_col6_reply_col6_red_col6.
+  - apply opening_col6_reply_col3_red_col6_reply_col6_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col3_raw_if_all_reply_subgoal_blocks :
+  opening_col6_reply_col3_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 opening_col6_reply_col3_state.
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6.
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 39
+                  opening_col6_reply_col3_state
+                  opening_col6_reply_col3_result_ongoing
+                  opening_col6_reply_col3_turn_red)).
+  exists opening_col6_reply_col3_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col3_red_col6.
+  - apply (proj2 (red_can_force_win_unfold_ongoing_yellow 38
+                    opening_col6_reply_col3_red_col6_state
+                    opening_col6_reply_col3_red_col6_result_ongoing
+                    opening_col6_reply_col3_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col3_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col3_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    destruct m.
+    + apply opening_col6_reply_col3_red_col6_reply_col0_raw_if_subgoals; exact H0.
+    + apply opening_col6_reply_col3_red_col6_reply_col1_raw_if_subgoals; exact H1.
+    + apply opening_col6_reply_col3_red_col6_reply_col2_raw_if_subgoals; exact H2.
+    + apply opening_col6_reply_col3_red_col6_reply_col3_raw_if_subgoals; exact H3.
+    + apply opening_col6_reply_col3_red_col6_reply_col4_raw_if_subgoals; exact H4.
+    + apply opening_col6_reply_col3_red_col6_reply_col5_raw_if_subgoals; exact H5.
+    + apply opening_col6_reply_col3_red_col6_reply_col6_raw_if_subgoals; exact H6.
+Qed.
+
+Lemma opening_col6_reply_col3_goal_if_all_reply_subgoal_blocks :
+  opening_col6_reply_col3_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_goal.
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6.
+  apply opening_col6_reply_col3_raw_if_all_reply_subgoal_blocks; assumption.
+Qed.
+
+Lemma opening_col6_reply_col3_firstconj_if_all_reply_subgoal_blocks :
+  opening_col6_reply_col3_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col3).
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6.
+  change (red_can_force_win 40 opening_col6_reply_col3_state).
+  apply opening_col6_reply_col3_raw_if_all_reply_subgoal_blocks; assumption.
+Qed.
+
+Lemma opening_col6_reply_col3_firstconj_if_col3col0to5_col6_and_col3col6_block :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col3).
+Proof.
+  intros H30c6 H31c6 H32c6 H33c6 H34c6 H35c6 H36.
+  apply opening_col6_reply_col3_firstconj_if_all_reply_subgoal_blocks.
+  - apply opening_col6_reply_col3_red_col6_reply_col0_red_col6_reply_subgoals_if_col6.
+    exact H30c6.
+  - apply opening_col6_reply_col3_red_col6_reply_col1_red_col6_reply_subgoals_if_col6.
+    exact H31c6.
+  - apply opening_col6_reply_col3_red_col6_reply_col2_red_col6_reply_subgoals_if_col6.
+    exact H32c6.
+  - apply opening_col6_reply_col3_red_col6_reply_col3_red_col6_reply_subgoals_if_col6.
+    exact H33c6.
+  - apply opening_col6_reply_col3_red_col6_reply_col4_red_col6_reply_subgoals_if_col6.
+    exact H34c6.
+  - apply opening_col6_reply_col3_red_col6_reply_col5_red_col6_reply_subgoals_if_col6.
+    exact H35c6.
+  - exact H36.
+Qed.
+
+Definition opening_col6_reply_col4_state : game :=
+  apply_move opening_col6_state col4.
+
+Definition opening_col6_reply_col4_goal : Prop :=
+  red_can_force_win 40 opening_col6_reply_col4_state.
+
+Lemma opening_col6_reply_col4_turn_red :
+  next_turn opening_col6_reply_col4_state = red.
+Proof.
+  unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_result_ongoing :
+  get_result opening_col6_reply_col4_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_goal_unfold :
+  opening_col6_reply_col4_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col4_state) /\
+    red_can_force_win 39 g.
+Proof.
+  unfold opening_col6_reply_col4_goal.
+  change 40 with (S 39).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col4_result_ongoing.
+  - apply opening_col6_reply_col4_turn_red.
+Qed.
+
+Definition opening_col6_reply_col4_red_col6_state : game :=
+  apply_move opening_col6_reply_col4_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col4_red_col6 :
+  In opening_col6_reply_col4_red_col6_state
+     (c4_next opening_col6_reply_col4_state).
+Proof.
+  unfold opening_col6_reply_col4_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col4_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col4_result_ongoing.
+  - unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col4_goal_if_red_col6_child :
+  red_can_force_win 39 opening_col6_reply_col4_red_col6_state ->
+  opening_col6_reply_col4_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col4_goal_unfold).
+  exists opening_col6_reply_col4_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col4_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col4_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col4_red_col6_state.
+  unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_result_ongoing :
+  get_result opening_col6_reply_col4_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col4_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col4_red_col6_state m)
+       (c4_next opening_col6_reply_col4_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col4_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col4_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col4_red_col6_state.
+    unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_move_form :
+  red_can_force_win 39 opening_col6_reply_col4_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 38
+      (apply_move opening_col6_reply_col4_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 38
+                    opening_col6_reply_col4_red_col6_state
+                    opening_col6_reply_col4_red_col6_result_ongoing
+                    opening_col6_reply_col4_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col4_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 38
+                    opening_col6_reply_col4_red_col6_state
+                    opening_col6_reply_col4_red_col6_result_ongoing
+                    opening_col6_reply_col4_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col4_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col4_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col4_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 38 (apply_move opening_col6_reply_col4_red_col6_state col0) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col4_red_col6_state col1) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col4_red_col6_state col2) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col4_red_col6_state col3) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col4_red_col6_state col4) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col4_red_col6_state col5) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col4_red_col6_state col6).
+
+Lemma opening_col6_reply_col4_red_col6_subgoals_imply_child :
+  opening_col6_reply_col4_red_col6_reply_subgoals ->
+  red_can_force_win 39 opening_col6_reply_col4_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col4_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col4_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col4_goal_if_red_col6_child.
+  apply opening_col6_reply_col4_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col4_red_col6_reply_col0_state : game :=
+  apply_move opening_col6_reply_col4_red_col6_state col0.
+
+Definition opening_col6_reply_col4_red_col6_reply_col0_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col4_red_col6_reply_col0_state.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col0_turn_red :
+  next_turn opening_col6_reply_col4_red_col6_reply_col0_state = red.
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col0_state.
+  unfold opening_col6_reply_col4_red_col6_state.
+  unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col0_result_ongoing :
+  get_result opening_col6_reply_col4_red_col6_reply_col0_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col0_goal_unfold :
+  opening_col6_reply_col4_red_col6_reply_col0_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col4_red_col6_reply_col0_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col0_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col4_red_col6_reply_col0_result_ongoing.
+  - apply opening_col6_reply_col4_red_col6_reply_col0_turn_red.
+Qed.
+
+Definition opening_col6_reply_col4_red_col6_reply_col0_red_col6_state : game :=
+  apply_move opening_col6_reply_col4_red_col6_reply_col0_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col4_red_col6_reply_col0_red_col6 :
+  In opening_col6_reply_col4_red_col6_reply_col0_red_col6_state
+     (c4_next opening_col6_reply_col4_red_col6_reply_col0_state).
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col0_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col4_red_col6_reply_col0_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col4_red_col6_reply_col0_result_ongoing.
+  - unfold opening_col6_reply_col4_red_col6_reply_col0_state.
+    unfold opening_col6_reply_col4_red_col6_state.
+    unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col0_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col4_red_col6_reply_col0_red_col6_state ->
+  opening_col6_reply_col4_red_col6_reply_col0_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col4_red_col6_reply_col0_goal_unfold).
+  exists opening_col6_reply_col4_red_col6_reply_col0_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col4_red_col6_reply_col0_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col0_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col4_red_col6_reply_col0_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col0_red_col6_state.
+  unfold opening_col6_reply_col4_red_col6_reply_col0_state.
+  unfold opening_col6_reply_col4_red_col6_state.
+  unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col0_red_col6_result_ongoing :
+  get_result opening_col6_reply_col4_red_col6_reply_col0_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col4_red_col6_reply_col0_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col4_red_col6_reply_col0_red_col6_state m)
+       (c4_next opening_col6_reply_col4_red_col6_reply_col0_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col4_red_col6_reply_col0_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col4_red_col6_reply_col0_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col4_red_col6_reply_col0_red_col6_state.
+    unfold opening_col6_reply_col4_red_col6_reply_col0_state.
+    unfold opening_col6_reply_col4_red_col6_state.
+    unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col0_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col4_red_col6_reply_col0_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col4_red_col6_reply_col0_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col4_red_col6_reply_col0_red_col6_state
+                    opening_col6_reply_col4_red_col6_reply_col0_red_col6_result_ongoing
+                    opening_col6_reply_col4_red_col6_reply_col0_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col4_red_col6_reply_col0_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col4_red_col6_reply_col0_red_col6_state
+                    opening_col6_reply_col4_red_col6_reply_col0_red_col6_result_ongoing
+                    opening_col6_reply_col4_red_col6_reply_col0_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col4_red_col6_reply_col0_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col4_red_col6_reply_col0_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col4_red_col6_reply_col0_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col0_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col0_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col0_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col0_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col0_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col0_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col0_red_col6_state col6).
+
+Lemma opening_col6_reply_col4_red_col6_reply_col0_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col0_red_col6_state col6) ->
+  opening_col6_reply_col4_red_col6_reply_col0_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col0_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col0_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col0_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col0_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col0_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col0_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col0_red_col6_subgoals_imply_child :
+  opening_col6_reply_col4_red_col6_reply_col0_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col4_red_col6_reply_col0_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col4_red_col6_reply_col0_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col0_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col4_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col0_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col4_red_col6_reply_col0_goal_if_red_col6_child.
+  apply opening_col6_reply_col4_red_col6_reply_col0_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col4_red_col6_reply_col1_state : game :=
+  apply_move opening_col6_reply_col4_red_col6_state col1.
+
+Definition opening_col6_reply_col4_red_col6_reply_col1_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col4_red_col6_reply_col1_state.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col1_turn_red :
+  next_turn opening_col6_reply_col4_red_col6_reply_col1_state = red.
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col1_state.
+  unfold opening_col6_reply_col4_red_col6_state.
+  unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col1_result_ongoing :
+  get_result opening_col6_reply_col4_red_col6_reply_col1_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col1_goal_unfold :
+  opening_col6_reply_col4_red_col6_reply_col1_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col4_red_col6_reply_col1_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col1_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col4_red_col6_reply_col1_result_ongoing.
+  - apply opening_col6_reply_col4_red_col6_reply_col1_turn_red.
+Qed.
+
+Definition opening_col6_reply_col4_red_col6_reply_col1_red_col6_state : game :=
+  apply_move opening_col6_reply_col4_red_col6_reply_col1_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col4_red_col6_reply_col1_red_col6 :
+  In opening_col6_reply_col4_red_col6_reply_col1_red_col6_state
+     (c4_next opening_col6_reply_col4_red_col6_reply_col1_state).
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col1_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col4_red_col6_reply_col1_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col4_red_col6_reply_col1_result_ongoing.
+  - unfold opening_col6_reply_col4_red_col6_reply_col1_state.
+    unfold opening_col6_reply_col4_red_col6_state.
+    unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col1_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col4_red_col6_reply_col1_red_col6_state ->
+  opening_col6_reply_col4_red_col6_reply_col1_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col4_red_col6_reply_col1_goal_unfold).
+  exists opening_col6_reply_col4_red_col6_reply_col1_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col4_red_col6_reply_col1_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col1_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col4_red_col6_reply_col1_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col1_red_col6_state.
+  unfold opening_col6_reply_col4_red_col6_reply_col1_state.
+  unfold opening_col6_reply_col4_red_col6_state.
+  unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col1_red_col6_result_ongoing :
+  get_result opening_col6_reply_col4_red_col6_reply_col1_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col4_red_col6_reply_col1_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col4_red_col6_reply_col1_red_col6_state m)
+       (c4_next opening_col6_reply_col4_red_col6_reply_col1_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col4_red_col6_reply_col1_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col4_red_col6_reply_col1_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col4_red_col6_reply_col1_red_col6_state.
+    unfold opening_col6_reply_col4_red_col6_reply_col1_state.
+    unfold opening_col6_reply_col4_red_col6_state.
+    unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col1_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col4_red_col6_reply_col1_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col4_red_col6_reply_col1_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col4_red_col6_reply_col1_red_col6_state
+                    opening_col6_reply_col4_red_col6_reply_col1_red_col6_result_ongoing
+                    opening_col6_reply_col4_red_col6_reply_col1_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col4_red_col6_reply_col1_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col4_red_col6_reply_col1_red_col6_state
+                    opening_col6_reply_col4_red_col6_reply_col1_red_col6_result_ongoing
+                    opening_col6_reply_col4_red_col6_reply_col1_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col4_red_col6_reply_col1_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col4_red_col6_reply_col1_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col4_red_col6_reply_col1_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col1_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col1_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col1_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col1_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col1_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col1_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col1_red_col6_state col6).
+
+Lemma opening_col6_reply_col4_red_col6_reply_col1_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col1_red_col6_state col6) ->
+  opening_col6_reply_col4_red_col6_reply_col1_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col1_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col1_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col1_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col1_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col1_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col1_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col1_red_col6_subgoals_imply_child :
+  opening_col6_reply_col4_red_col6_reply_col1_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col4_red_col6_reply_col1_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col4_red_col6_reply_col1_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col1_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col4_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col1_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col4_red_col6_reply_col1_goal_if_red_col6_child.
+  apply opening_col6_reply_col4_red_col6_reply_col1_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col4_red_col6_reply_col2_state : game :=
+  apply_move opening_col6_reply_col4_red_col6_state col2.
+
+Definition opening_col6_reply_col4_red_col6_reply_col2_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col4_red_col6_reply_col2_state.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col2_turn_red :
+  next_turn opening_col6_reply_col4_red_col6_reply_col2_state = red.
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col2_state.
+  unfold opening_col6_reply_col4_red_col6_state.
+  unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col2_result_ongoing :
+  get_result opening_col6_reply_col4_red_col6_reply_col2_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col2_goal_unfold :
+  opening_col6_reply_col4_red_col6_reply_col2_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col4_red_col6_reply_col2_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col2_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col4_red_col6_reply_col2_result_ongoing.
+  - apply opening_col6_reply_col4_red_col6_reply_col2_turn_red.
+Qed.
+
+Definition opening_col6_reply_col4_red_col6_reply_col2_red_col6_state : game :=
+  apply_move opening_col6_reply_col4_red_col6_reply_col2_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col4_red_col6_reply_col2_red_col6 :
+  In opening_col6_reply_col4_red_col6_reply_col2_red_col6_state
+     (c4_next opening_col6_reply_col4_red_col6_reply_col2_state).
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col2_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col4_red_col6_reply_col2_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col4_red_col6_reply_col2_result_ongoing.
+  - unfold opening_col6_reply_col4_red_col6_reply_col2_state.
+    unfold opening_col6_reply_col4_red_col6_state.
+    unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col2_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col4_red_col6_reply_col2_red_col6_state ->
+  opening_col6_reply_col4_red_col6_reply_col2_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col4_red_col6_reply_col2_goal_unfold).
+  exists opening_col6_reply_col4_red_col6_reply_col2_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col4_red_col6_reply_col2_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col2_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col4_red_col6_reply_col2_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col2_red_col6_state.
+  unfold opening_col6_reply_col4_red_col6_reply_col2_state.
+  unfold opening_col6_reply_col4_red_col6_state.
+  unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col2_red_col6_result_ongoing :
+  get_result opening_col6_reply_col4_red_col6_reply_col2_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col4_red_col6_reply_col2_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col4_red_col6_reply_col2_red_col6_state m)
+       (c4_next opening_col6_reply_col4_red_col6_reply_col2_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col4_red_col6_reply_col2_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col4_red_col6_reply_col2_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col4_red_col6_reply_col2_red_col6_state.
+    unfold opening_col6_reply_col4_red_col6_reply_col2_state.
+    unfold opening_col6_reply_col4_red_col6_state.
+    unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col2_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col4_red_col6_reply_col2_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col4_red_col6_reply_col2_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col4_red_col6_reply_col2_red_col6_state
+                    opening_col6_reply_col4_red_col6_reply_col2_red_col6_result_ongoing
+                    opening_col6_reply_col4_red_col6_reply_col2_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col4_red_col6_reply_col2_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col4_red_col6_reply_col2_red_col6_state
+                    opening_col6_reply_col4_red_col6_reply_col2_red_col6_result_ongoing
+                    opening_col6_reply_col4_red_col6_reply_col2_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col4_red_col6_reply_col2_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col4_red_col6_reply_col2_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col4_red_col6_reply_col2_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col2_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col2_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col2_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col2_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col2_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col2_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col2_red_col6_state col6).
+
+Lemma opening_col6_reply_col4_red_col6_reply_col2_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col2_red_col6_state col6) ->
+  opening_col6_reply_col4_red_col6_reply_col2_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col2_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col2_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col2_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col2_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col2_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col2_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col2_red_col6_subgoals_imply_child :
+  opening_col6_reply_col4_red_col6_reply_col2_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col4_red_col6_reply_col2_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col4_red_col6_reply_col2_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col2_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col4_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col2_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col4_red_col6_reply_col2_goal_if_red_col6_child.
+  apply opening_col6_reply_col4_red_col6_reply_col2_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col4_red_col6_reply_col3_state : game :=
+  apply_move opening_col6_reply_col4_red_col6_state col3.
+
+Definition opening_col6_reply_col4_red_col6_reply_col3_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col4_red_col6_reply_col3_state.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col3_turn_red :
+  next_turn opening_col6_reply_col4_red_col6_reply_col3_state = red.
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col3_state.
+  unfold opening_col6_reply_col4_red_col6_state.
+  unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col3_result_ongoing :
+  get_result opening_col6_reply_col4_red_col6_reply_col3_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col3_goal_unfold :
+  opening_col6_reply_col4_red_col6_reply_col3_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col4_red_col6_reply_col3_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col3_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col4_red_col6_reply_col3_result_ongoing.
+  - apply opening_col6_reply_col4_red_col6_reply_col3_turn_red.
+Qed.
+
+Definition opening_col6_reply_col4_red_col6_reply_col3_red_col6_state : game :=
+  apply_move opening_col6_reply_col4_red_col6_reply_col3_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col4_red_col6_reply_col3_red_col6 :
+  In opening_col6_reply_col4_red_col6_reply_col3_red_col6_state
+     (c4_next opening_col6_reply_col4_red_col6_reply_col3_state).
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col3_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col4_red_col6_reply_col3_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col4_red_col6_reply_col3_result_ongoing.
+  - unfold opening_col6_reply_col4_red_col6_reply_col3_state.
+    unfold opening_col6_reply_col4_red_col6_state.
+    unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col3_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col4_red_col6_reply_col3_red_col6_state ->
+  opening_col6_reply_col4_red_col6_reply_col3_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col4_red_col6_reply_col3_goal_unfold).
+  exists opening_col6_reply_col4_red_col6_reply_col3_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col4_red_col6_reply_col3_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col3_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col4_red_col6_reply_col3_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col3_red_col6_state.
+  unfold opening_col6_reply_col4_red_col6_reply_col3_state.
+  unfold opening_col6_reply_col4_red_col6_state.
+  unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col3_red_col6_result_ongoing :
+  get_result opening_col6_reply_col4_red_col6_reply_col3_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col4_red_col6_reply_col3_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col4_red_col6_reply_col3_red_col6_state m)
+       (c4_next opening_col6_reply_col4_red_col6_reply_col3_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col4_red_col6_reply_col3_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col4_red_col6_reply_col3_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col4_red_col6_reply_col3_red_col6_state.
+    unfold opening_col6_reply_col4_red_col6_reply_col3_state.
+    unfold opening_col6_reply_col4_red_col6_state.
+    unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col3_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col4_red_col6_reply_col3_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col4_red_col6_reply_col3_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col4_red_col6_reply_col3_red_col6_state
+                    opening_col6_reply_col4_red_col6_reply_col3_red_col6_result_ongoing
+                    opening_col6_reply_col4_red_col6_reply_col3_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col4_red_col6_reply_col3_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col4_red_col6_reply_col3_red_col6_state
+                    opening_col6_reply_col4_red_col6_reply_col3_red_col6_result_ongoing
+                    opening_col6_reply_col4_red_col6_reply_col3_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col4_red_col6_reply_col3_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col4_red_col6_reply_col3_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col4_red_col6_reply_col3_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col3_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col3_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col3_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col3_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col3_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col3_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col3_red_col6_state col6).
+
+Lemma opening_col6_reply_col4_red_col6_reply_col3_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col3_red_col6_state col6) ->
+  opening_col6_reply_col4_red_col6_reply_col3_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col3_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col3_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col3_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col3_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col3_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col3_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col3_red_col6_subgoals_imply_child :
+  opening_col6_reply_col4_red_col6_reply_col3_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col4_red_col6_reply_col3_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col4_red_col6_reply_col3_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col3_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col4_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col3_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col4_red_col6_reply_col3_goal_if_red_col6_child.
+  apply opening_col6_reply_col4_red_col6_reply_col3_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col4_red_col6_reply_col4_state : game :=
+  apply_move opening_col6_reply_col4_red_col6_state col4.
+
+Definition opening_col6_reply_col4_red_col6_reply_col4_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col4_red_col6_reply_col4_state.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col4_turn_red :
+  next_turn opening_col6_reply_col4_red_col6_reply_col4_state = red.
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col4_state.
+  unfold opening_col6_reply_col4_red_col6_state.
+  unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col4_result_ongoing :
+  get_result opening_col6_reply_col4_red_col6_reply_col4_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col4_goal_unfold :
+  opening_col6_reply_col4_red_col6_reply_col4_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col4_red_col6_reply_col4_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col4_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col4_red_col6_reply_col4_result_ongoing.
+  - apply opening_col6_reply_col4_red_col6_reply_col4_turn_red.
+Qed.
+
+Definition opening_col6_reply_col4_red_col6_reply_col4_red_col6_state : game :=
+  apply_move opening_col6_reply_col4_red_col6_reply_col4_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col4_red_col6_reply_col4_red_col6 :
+  In opening_col6_reply_col4_red_col6_reply_col4_red_col6_state
+     (c4_next opening_col6_reply_col4_red_col6_reply_col4_state).
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col4_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col4_red_col6_reply_col4_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col4_red_col6_reply_col4_result_ongoing.
+  - unfold opening_col6_reply_col4_red_col6_reply_col4_state.
+    unfold opening_col6_reply_col4_red_col6_state.
+    unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col4_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col4_red_col6_reply_col4_red_col6_state ->
+  opening_col6_reply_col4_red_col6_reply_col4_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col4_red_col6_reply_col4_goal_unfold).
+  exists opening_col6_reply_col4_red_col6_reply_col4_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col4_red_col6_reply_col4_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col4_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col4_red_col6_reply_col4_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col4_red_col6_state.
+  unfold opening_col6_reply_col4_red_col6_reply_col4_state.
+  unfold opening_col6_reply_col4_red_col6_state.
+  unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col4_red_col6_result_ongoing :
+  get_result opening_col6_reply_col4_red_col6_reply_col4_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col4_red_col6_reply_col4_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col4_red_col6_reply_col4_red_col6_state m)
+       (c4_next opening_col6_reply_col4_red_col6_reply_col4_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col4_red_col6_reply_col4_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col4_red_col6_reply_col4_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col4_red_col6_reply_col4_red_col6_state.
+    unfold opening_col6_reply_col4_red_col6_reply_col4_state.
+    unfold opening_col6_reply_col4_red_col6_state.
+    unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col4_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col4_red_col6_reply_col4_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col4_red_col6_reply_col4_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col4_red_col6_reply_col4_red_col6_state
+                    opening_col6_reply_col4_red_col6_reply_col4_red_col6_result_ongoing
+                    opening_col6_reply_col4_red_col6_reply_col4_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col4_red_col6_reply_col4_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col4_red_col6_reply_col4_red_col6_state
+                    opening_col6_reply_col4_red_col6_reply_col4_red_col6_result_ongoing
+                    opening_col6_reply_col4_red_col6_reply_col4_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col4_red_col6_reply_col4_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col4_red_col6_reply_col4_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col4_red_col6_reply_col4_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col6).
+
+Lemma opening_col6_reply_col4_red_col6_reply_col4_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col6) ->
+  opening_col6_reply_col4_red_col6_reply_col4_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col4_red_col6_subgoals_imply_child :
+  opening_col6_reply_col4_red_col6_reply_col4_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col4_red_col6_reply_col4_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col4_red_col6_reply_col4_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col4_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col4_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col4_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col4_red_col6_reply_col4_goal_if_red_col6_child.
+  apply opening_col6_reply_col4_red_col6_reply_col4_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col4_red_col6_reply_col5_state : game :=
+  apply_move opening_col6_reply_col4_red_col6_state col5.
+
+Definition opening_col6_reply_col4_red_col6_reply_col5_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col4_red_col6_reply_col5_state.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col5_turn_red :
+  next_turn opening_col6_reply_col4_red_col6_reply_col5_state = red.
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col5_state.
+  unfold opening_col6_reply_col4_red_col6_state.
+  unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col5_result_ongoing :
+  get_result opening_col6_reply_col4_red_col6_reply_col5_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col5_goal_unfold :
+  opening_col6_reply_col4_red_col6_reply_col5_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col4_red_col6_reply_col5_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col5_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col4_red_col6_reply_col5_result_ongoing.
+  - apply opening_col6_reply_col4_red_col6_reply_col5_turn_red.
+Qed.
+
+Definition opening_col6_reply_col4_red_col6_reply_col5_red_col6_state : game :=
+  apply_move opening_col6_reply_col4_red_col6_reply_col5_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col4_red_col6_reply_col5_red_col6 :
+  In opening_col6_reply_col4_red_col6_reply_col5_red_col6_state
+     (c4_next opening_col6_reply_col4_red_col6_reply_col5_state).
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col5_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col4_red_col6_reply_col5_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col4_red_col6_reply_col5_result_ongoing.
+  - unfold opening_col6_reply_col4_red_col6_reply_col5_state.
+    unfold opening_col6_reply_col4_red_col6_state.
+    unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col5_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col4_red_col6_reply_col5_red_col6_state ->
+  opening_col6_reply_col4_red_col6_reply_col5_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col4_red_col6_reply_col5_goal_unfold).
+  exists opening_col6_reply_col4_red_col6_reply_col5_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col4_red_col6_reply_col5_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col5_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col4_red_col6_reply_col5_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col5_red_col6_state.
+  unfold opening_col6_reply_col4_red_col6_reply_col5_state.
+  unfold opening_col6_reply_col4_red_col6_state.
+  unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col5_red_col6_result_ongoing :
+  get_result opening_col6_reply_col4_red_col6_reply_col5_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col4_red_col6_reply_col5_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col4_red_col6_reply_col5_red_col6_state m)
+       (c4_next opening_col6_reply_col4_red_col6_reply_col5_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col4_red_col6_reply_col5_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col4_red_col6_reply_col5_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col4_red_col6_reply_col5_red_col6_state.
+    unfold opening_col6_reply_col4_red_col6_reply_col5_state.
+    unfold opening_col6_reply_col4_red_col6_state.
+    unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col5_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col4_red_col6_reply_col5_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col4_red_col6_reply_col5_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col4_red_col6_reply_col5_red_col6_state
+                    opening_col6_reply_col4_red_col6_reply_col5_red_col6_result_ongoing
+                    opening_col6_reply_col4_red_col6_reply_col5_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col4_red_col6_reply_col5_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col4_red_col6_reply_col5_red_col6_state
+                    opening_col6_reply_col4_red_col6_reply_col5_red_col6_result_ongoing
+                    opening_col6_reply_col4_red_col6_reply_col5_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col4_red_col6_reply_col5_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col4_red_col6_reply_col5_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col4_red_col6_reply_col5_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col6).
+
+Lemma opening_col6_reply_col4_red_col6_reply_col5_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col4_red_col6_reply_col5_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col5_red_col6_subgoals_imply_child :
+  opening_col6_reply_col4_red_col6_reply_col5_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col4_red_col6_reply_col5_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col4_red_col6_reply_col5_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col5_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col4_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col5_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col4_red_col6_reply_col5_goal_if_red_col6_child.
+  apply opening_col6_reply_col4_red_col6_reply_col5_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col4_red_col6_reply_col6_state : game :=
+  apply_move opening_col6_reply_col4_red_col6_state col6.
+
+Definition opening_col6_reply_col4_red_col6_reply_col6_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col4_red_col6_reply_col6_state.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col6_turn_red :
+  next_turn opening_col6_reply_col4_red_col6_reply_col6_state = red.
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col6_state.
+  unfold opening_col6_reply_col4_red_col6_state.
+  unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col6_result_ongoing :
+  get_result opening_col6_reply_col4_red_col6_reply_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col6_goal_unfold :
+  opening_col6_reply_col4_red_col6_reply_col6_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col4_red_col6_reply_col6_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col6_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col4_red_col6_reply_col6_result_ongoing.
+  - apply opening_col6_reply_col4_red_col6_reply_col6_turn_red.
+Qed.
+
+Definition opening_col6_reply_col4_red_col6_reply_col6_red_col6_state : game :=
+  apply_move opening_col6_reply_col4_red_col6_reply_col6_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col4_red_col6_reply_col6_red_col6 :
+  In opening_col6_reply_col4_red_col6_reply_col6_red_col6_state
+     (c4_next opening_col6_reply_col4_red_col6_reply_col6_state).
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col6_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col4_red_col6_reply_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col4_red_col6_reply_col6_result_ongoing.
+  - unfold opening_col6_reply_col4_red_col6_reply_col6_state.
+    unfold opening_col6_reply_col4_red_col6_state.
+    unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col6_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col4_red_col6_reply_col6_red_col6_state ->
+  opening_col6_reply_col4_red_col6_reply_col6_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col4_red_col6_reply_col6_goal_unfold).
+  exists opening_col6_reply_col4_red_col6_reply_col6_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col4_red_col6_reply_col6_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col6_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col4_red_col6_reply_col6_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col4_red_col6_reply_col6_red_col6_state.
+  unfold opening_col6_reply_col4_red_col6_reply_col6_state.
+  unfold opening_col6_reply_col4_red_col6_state.
+  unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col6_red_col6_result_ongoing :
+  get_result opening_col6_reply_col4_red_col6_reply_col6_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col4_red_col6_reply_col6_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col4_red_col6_reply_col6_red_col6_state m)
+       (c4_next opening_col6_reply_col4_red_col6_reply_col6_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col4_red_col6_reply_col6_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col4_red_col6_reply_col6_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col4_red_col6_reply_col6_red_col6_state.
+    unfold opening_col6_reply_col4_red_col6_reply_col6_state.
+    unfold opening_col6_reply_col4_red_col6_state.
+    unfold opening_col6_reply_col4_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col6_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col4_red_col6_reply_col6_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col4_red_col6_reply_col6_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col4_red_col6_reply_col6_red_col6_state
+                    opening_col6_reply_col4_red_col6_reply_col6_red_col6_result_ongoing
+                    opening_col6_reply_col4_red_col6_reply_col6_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col4_red_col6_reply_col6_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col4_red_col6_reply_col6_red_col6_state
+                    opening_col6_reply_col4_red_col6_reply_col6_red_col6_result_ongoing
+                    opening_col6_reply_col4_red_col6_reply_col6_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col4_red_col6_reply_col6_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col4_red_col6_reply_col6_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col6_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col6_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col6_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col6_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col6_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col6_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col4_red_col6_reply_col6_red_col6_state col6).
+
+Lemma opening_col6_reply_col4_red_col6_reply_col6_red_col6_subgoals_imply_child :
+  opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col4_red_col6_reply_col6_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col4_red_col6_reply_col6_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col6_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col6_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col4_red_col6_reply_col6_goal_if_red_col6_child.
+  apply opening_col6_reply_col4_red_col6_reply_col6_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col0_raw_if_subgoals :
+  opening_col6_reply_col4_red_col6_reply_col0_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col4_red_col6_state col0).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col4_red_col6_reply_col0_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col4_red_col6_reply_col0_state
+                  opening_col6_reply_col4_red_col6_reply_col0_result_ongoing
+                  opening_col6_reply_col4_red_col6_reply_col0_turn_red)).
+  exists opening_col6_reply_col4_red_col6_reply_col0_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col4_red_col6_reply_col0_red_col6.
+  - apply opening_col6_reply_col4_red_col6_reply_col0_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col1_raw_if_subgoals :
+  opening_col6_reply_col4_red_col6_reply_col1_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col4_red_col6_state col1).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col4_red_col6_reply_col1_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col4_red_col6_reply_col1_state
+                  opening_col6_reply_col4_red_col6_reply_col1_result_ongoing
+                  opening_col6_reply_col4_red_col6_reply_col1_turn_red)).
+  exists opening_col6_reply_col4_red_col6_reply_col1_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col4_red_col6_reply_col1_red_col6.
+  - apply opening_col6_reply_col4_red_col6_reply_col1_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col2_raw_if_subgoals :
+  opening_col6_reply_col4_red_col6_reply_col2_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col4_red_col6_state col2).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col4_red_col6_reply_col2_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col4_red_col6_reply_col2_state
+                  opening_col6_reply_col4_red_col6_reply_col2_result_ongoing
+                  opening_col6_reply_col4_red_col6_reply_col2_turn_red)).
+  exists opening_col6_reply_col4_red_col6_reply_col2_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col4_red_col6_reply_col2_red_col6.
+  - apply opening_col6_reply_col4_red_col6_reply_col2_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col3_raw_if_subgoals :
+  opening_col6_reply_col4_red_col6_reply_col3_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col4_red_col6_state col3).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col4_red_col6_reply_col3_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col4_red_col6_reply_col3_state
+                  opening_col6_reply_col4_red_col6_reply_col3_result_ongoing
+                  opening_col6_reply_col4_red_col6_reply_col3_turn_red)).
+  exists opening_col6_reply_col4_red_col6_reply_col3_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col4_red_col6_reply_col3_red_col6.
+  - apply opening_col6_reply_col4_red_col6_reply_col3_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col4_raw_if_subgoals :
+  opening_col6_reply_col4_red_col6_reply_col4_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col4_red_col6_state col4).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col4_red_col6_reply_col4_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col4_red_col6_reply_col4_state
+                  opening_col6_reply_col4_red_col6_reply_col4_result_ongoing
+                  opening_col6_reply_col4_red_col6_reply_col4_turn_red)).
+  exists opening_col6_reply_col4_red_col6_reply_col4_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col4_red_col6_reply_col4_red_col6.
+  - apply opening_col6_reply_col4_red_col6_reply_col4_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col5_raw_if_subgoals :
+  opening_col6_reply_col4_red_col6_reply_col5_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col4_red_col6_state col5).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col4_red_col6_reply_col5_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col4_red_col6_reply_col5_state
+                  opening_col6_reply_col4_red_col6_reply_col5_result_ongoing
+                  opening_col6_reply_col4_red_col6_reply_col5_turn_red)).
+  exists opening_col6_reply_col4_red_col6_reply_col5_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col4_red_col6_reply_col5_red_col6.
+  - apply opening_col6_reply_col4_red_col6_reply_col5_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col4_red_col6_reply_col6_raw_if_subgoals :
+  opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col4_red_col6_state col6).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col4_red_col6_reply_col6_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col4_red_col6_reply_col6_state
+                  opening_col6_reply_col4_red_col6_reply_col6_result_ongoing
+                  opening_col6_reply_col4_red_col6_reply_col6_turn_red)).
+  exists opening_col6_reply_col4_red_col6_reply_col6_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col4_red_col6_reply_col6_red_col6.
+  - apply opening_col6_reply_col4_red_col6_reply_col6_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col4_raw_if_all_reply_subgoal_blocks :
+  opening_col6_reply_col4_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 opening_col6_reply_col4_state.
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6.
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 39
+                  opening_col6_reply_col4_state
+                  opening_col6_reply_col4_result_ongoing
+                  opening_col6_reply_col4_turn_red)).
+  exists opening_col6_reply_col4_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col4_red_col6.
+  - apply (proj2 (red_can_force_win_unfold_ongoing_yellow 38
+                    opening_col6_reply_col4_red_col6_state
+                    opening_col6_reply_col4_red_col6_result_ongoing
+                    opening_col6_reply_col4_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col4_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col4_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    destruct m.
+    + apply opening_col6_reply_col4_red_col6_reply_col0_raw_if_subgoals; exact H0.
+    + apply opening_col6_reply_col4_red_col6_reply_col1_raw_if_subgoals; exact H1.
+    + apply opening_col6_reply_col4_red_col6_reply_col2_raw_if_subgoals; exact H2.
+    + apply opening_col6_reply_col4_red_col6_reply_col3_raw_if_subgoals; exact H3.
+    + apply opening_col6_reply_col4_red_col6_reply_col4_raw_if_subgoals; exact H4.
+    + apply opening_col6_reply_col4_red_col6_reply_col5_raw_if_subgoals; exact H5.
+    + apply opening_col6_reply_col4_red_col6_reply_col6_raw_if_subgoals; exact H6.
+Qed.
+
+Lemma opening_col6_reply_col4_goal_if_all_reply_subgoal_blocks :
+  opening_col6_reply_col4_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_goal.
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6.
+  apply opening_col6_reply_col4_raw_if_all_reply_subgoal_blocks; assumption.
+Qed.
+
+Lemma opening_col6_reply_col4_firstconj_if_all_reply_subgoal_blocks :
+  opening_col6_reply_col4_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col4).
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6.
+  change (red_can_force_win 40 opening_col6_reply_col4_state).
+  apply opening_col6_reply_col4_raw_if_all_reply_subgoal_blocks; assumption.
+Qed.
+
+Lemma opening_col6_reply_col4_firstconj_if_col4col0to5_col6_and_col4col6_block :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col4).
+Proof.
+  intros H40c6 H41c6 H42c6 H43c6 H44c6 H45c6 H46.
+  apply opening_col6_reply_col4_firstconj_if_all_reply_subgoal_blocks.
+  - apply opening_col6_reply_col4_red_col6_reply_col0_red_col6_reply_subgoals_if_col6.
+    exact H40c6.
+  - apply opening_col6_reply_col4_red_col6_reply_col1_red_col6_reply_subgoals_if_col6.
+    exact H41c6.
+  - apply opening_col6_reply_col4_red_col6_reply_col2_red_col6_reply_subgoals_if_col6.
+    exact H42c6.
+  - apply opening_col6_reply_col4_red_col6_reply_col3_red_col6_reply_subgoals_if_col6.
+    exact H43c6.
+  - apply opening_col6_reply_col4_red_col6_reply_col4_red_col6_reply_subgoals_if_col6.
+    exact H44c6.
+  - apply opening_col6_reply_col4_red_col6_reply_col5_red_col6_reply_subgoals_if_col6.
+    exact H45c6.
+  - exact H46.
+Qed.
+
+Definition opening_col6_reply_col5_state : game :=
+  apply_move opening_col6_state col5.
+
+Definition opening_col6_reply_col5_goal : Prop :=
+  red_can_force_win 40 opening_col6_reply_col5_state.
+
+Lemma opening_col6_reply_col5_turn_red :
+  next_turn opening_col6_reply_col5_state = red.
+Proof.
+  unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_result_ongoing :
+  get_result opening_col6_reply_col5_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_goal_unfold :
+  opening_col6_reply_col5_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col5_state) /\
+    red_can_force_win 39 g.
+Proof.
+  unfold opening_col6_reply_col5_goal.
+  change 40 with (S 39).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col5_result_ongoing.
+  - apply opening_col6_reply_col5_turn_red.
+Qed.
+
+Definition opening_col6_reply_col5_red_col6_state : game :=
+  apply_move opening_col6_reply_col5_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col5_red_col6 :
+  In opening_col6_reply_col5_red_col6_state
+     (c4_next opening_col6_reply_col5_state).
+Proof.
+  unfold opening_col6_reply_col5_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col5_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col5_result_ongoing.
+  - unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col5_goal_if_red_col6_child :
+  red_can_force_win 39 opening_col6_reply_col5_red_col6_state ->
+  opening_col6_reply_col5_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col5_goal_unfold).
+  exists opening_col6_reply_col5_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col5_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col5_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col5_red_col6_state.
+  unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_result_ongoing :
+  get_result opening_col6_reply_col5_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col5_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col5_red_col6_state m)
+       (c4_next opening_col6_reply_col5_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col5_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col5_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col5_red_col6_state.
+    unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_move_form :
+  red_can_force_win 39 opening_col6_reply_col5_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 38
+      (apply_move opening_col6_reply_col5_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 38
+                    opening_col6_reply_col5_red_col6_state
+                    opening_col6_reply_col5_red_col6_result_ongoing
+                    opening_col6_reply_col5_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col5_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 38
+                    opening_col6_reply_col5_red_col6_state
+                    opening_col6_reply_col5_red_col6_result_ongoing
+                    opening_col6_reply_col5_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col5_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col5_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col5_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 38 (apply_move opening_col6_reply_col5_red_col6_state col0) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col5_red_col6_state col1) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col5_red_col6_state col2) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col5_red_col6_state col3) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col5_red_col6_state col4) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col5_red_col6_state col5) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col5_red_col6_state col6).
+
+Lemma opening_col6_reply_col5_red_col6_subgoals_imply_child :
+  opening_col6_reply_col5_red_col6_reply_subgoals ->
+  red_can_force_win 39 opening_col6_reply_col5_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col5_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col5_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col5_goal_if_red_col6_child.
+  apply opening_col6_reply_col5_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col5_red_col6_reply_col0_state : game :=
+  apply_move opening_col6_reply_col5_red_col6_state col0.
+
+Definition opening_col6_reply_col5_red_col6_reply_col0_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col5_red_col6_reply_col0_state.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col0_turn_red :
+  next_turn opening_col6_reply_col5_red_col6_reply_col0_state = red.
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col0_state.
+  unfold opening_col6_reply_col5_red_col6_state.
+  unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col0_result_ongoing :
+  get_result opening_col6_reply_col5_red_col6_reply_col0_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col0_goal_unfold :
+  opening_col6_reply_col5_red_col6_reply_col0_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col5_red_col6_reply_col0_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col0_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col5_red_col6_reply_col0_result_ongoing.
+  - apply opening_col6_reply_col5_red_col6_reply_col0_turn_red.
+Qed.
+
+Definition opening_col6_reply_col5_red_col6_reply_col0_red_col6_state : game :=
+  apply_move opening_col6_reply_col5_red_col6_reply_col0_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col5_red_col6_reply_col0_red_col6 :
+  In opening_col6_reply_col5_red_col6_reply_col0_red_col6_state
+     (c4_next opening_col6_reply_col5_red_col6_reply_col0_state).
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col0_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col5_red_col6_reply_col0_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col5_red_col6_reply_col0_result_ongoing.
+  - unfold opening_col6_reply_col5_red_col6_reply_col0_state.
+    unfold opening_col6_reply_col5_red_col6_state.
+    unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col0_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col5_red_col6_reply_col0_red_col6_state ->
+  opening_col6_reply_col5_red_col6_reply_col0_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col5_red_col6_reply_col0_goal_unfold).
+  exists opening_col6_reply_col5_red_col6_reply_col0_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col5_red_col6_reply_col0_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col0_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col5_red_col6_reply_col0_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col0_red_col6_state.
+  unfold opening_col6_reply_col5_red_col6_reply_col0_state.
+  unfold opening_col6_reply_col5_red_col6_state.
+  unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col0_red_col6_result_ongoing :
+  get_result opening_col6_reply_col5_red_col6_reply_col0_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col5_red_col6_reply_col0_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col5_red_col6_reply_col0_red_col6_state m)
+       (c4_next opening_col6_reply_col5_red_col6_reply_col0_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col5_red_col6_reply_col0_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col5_red_col6_reply_col0_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col5_red_col6_reply_col0_red_col6_state.
+    unfold opening_col6_reply_col5_red_col6_reply_col0_state.
+    unfold opening_col6_reply_col5_red_col6_state.
+    unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col0_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col5_red_col6_reply_col0_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col5_red_col6_reply_col0_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col5_red_col6_reply_col0_red_col6_state
+                    opening_col6_reply_col5_red_col6_reply_col0_red_col6_result_ongoing
+                    opening_col6_reply_col5_red_col6_reply_col0_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col5_red_col6_reply_col0_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col5_red_col6_reply_col0_red_col6_state
+                    opening_col6_reply_col5_red_col6_reply_col0_red_col6_result_ongoing
+                    opening_col6_reply_col5_red_col6_reply_col0_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col5_red_col6_reply_col0_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col5_red_col6_reply_col0_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col5_red_col6_reply_col0_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col0_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col0_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col0_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col0_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col0_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col0_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col0_red_col6_state col6).
+
+Lemma opening_col6_reply_col5_red_col6_reply_col0_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col0_red_col6_state col6) ->
+  opening_col6_reply_col5_red_col6_reply_col0_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col0_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col0_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col0_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col0_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col0_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col0_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col0_red_col6_subgoals_imply_child :
+  opening_col6_reply_col5_red_col6_reply_col0_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col5_red_col6_reply_col0_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col5_red_col6_reply_col0_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col0_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col5_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col0_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col5_red_col6_reply_col0_goal_if_red_col6_child.
+  apply opening_col6_reply_col5_red_col6_reply_col0_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col5_red_col6_reply_col1_state : game :=
+  apply_move opening_col6_reply_col5_red_col6_state col1.
+
+Definition opening_col6_reply_col5_red_col6_reply_col1_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col5_red_col6_reply_col1_state.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col1_turn_red :
+  next_turn opening_col6_reply_col5_red_col6_reply_col1_state = red.
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col1_state.
+  unfold opening_col6_reply_col5_red_col6_state.
+  unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col1_result_ongoing :
+  get_result opening_col6_reply_col5_red_col6_reply_col1_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col1_goal_unfold :
+  opening_col6_reply_col5_red_col6_reply_col1_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col5_red_col6_reply_col1_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col1_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col5_red_col6_reply_col1_result_ongoing.
+  - apply opening_col6_reply_col5_red_col6_reply_col1_turn_red.
+Qed.
+
+Definition opening_col6_reply_col5_red_col6_reply_col1_red_col6_state : game :=
+  apply_move opening_col6_reply_col5_red_col6_reply_col1_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col5_red_col6_reply_col1_red_col6 :
+  In opening_col6_reply_col5_red_col6_reply_col1_red_col6_state
+     (c4_next opening_col6_reply_col5_red_col6_reply_col1_state).
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col1_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col5_red_col6_reply_col1_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col5_red_col6_reply_col1_result_ongoing.
+  - unfold opening_col6_reply_col5_red_col6_reply_col1_state.
+    unfold opening_col6_reply_col5_red_col6_state.
+    unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col1_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col5_red_col6_reply_col1_red_col6_state ->
+  opening_col6_reply_col5_red_col6_reply_col1_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col5_red_col6_reply_col1_goal_unfold).
+  exists opening_col6_reply_col5_red_col6_reply_col1_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col5_red_col6_reply_col1_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col1_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col5_red_col6_reply_col1_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col1_red_col6_state.
+  unfold opening_col6_reply_col5_red_col6_reply_col1_state.
+  unfold opening_col6_reply_col5_red_col6_state.
+  unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col1_red_col6_result_ongoing :
+  get_result opening_col6_reply_col5_red_col6_reply_col1_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col5_red_col6_reply_col1_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col5_red_col6_reply_col1_red_col6_state m)
+       (c4_next opening_col6_reply_col5_red_col6_reply_col1_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col5_red_col6_reply_col1_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col5_red_col6_reply_col1_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col5_red_col6_reply_col1_red_col6_state.
+    unfold opening_col6_reply_col5_red_col6_reply_col1_state.
+    unfold opening_col6_reply_col5_red_col6_state.
+    unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col1_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col5_red_col6_reply_col1_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col5_red_col6_reply_col1_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col5_red_col6_reply_col1_red_col6_state
+                    opening_col6_reply_col5_red_col6_reply_col1_red_col6_result_ongoing
+                    opening_col6_reply_col5_red_col6_reply_col1_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col5_red_col6_reply_col1_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col5_red_col6_reply_col1_red_col6_state
+                    opening_col6_reply_col5_red_col6_reply_col1_red_col6_result_ongoing
+                    opening_col6_reply_col5_red_col6_reply_col1_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col5_red_col6_reply_col1_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col5_red_col6_reply_col1_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col5_red_col6_reply_col1_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col1_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col1_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col1_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col1_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col1_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col1_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col1_red_col6_state col6).
+
+Lemma opening_col6_reply_col5_red_col6_reply_col1_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col1_red_col6_state col6) ->
+  opening_col6_reply_col5_red_col6_reply_col1_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col1_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col1_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col1_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col1_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col1_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col1_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col1_red_col6_subgoals_imply_child :
+  opening_col6_reply_col5_red_col6_reply_col1_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col5_red_col6_reply_col1_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col5_red_col6_reply_col1_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col1_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col5_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col1_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col5_red_col6_reply_col1_goal_if_red_col6_child.
+  apply opening_col6_reply_col5_red_col6_reply_col1_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col5_red_col6_reply_col2_state : game :=
+  apply_move opening_col6_reply_col5_red_col6_state col2.
+
+Definition opening_col6_reply_col5_red_col6_reply_col2_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col5_red_col6_reply_col2_state.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col2_turn_red :
+  next_turn opening_col6_reply_col5_red_col6_reply_col2_state = red.
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col2_state.
+  unfold opening_col6_reply_col5_red_col6_state.
+  unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col2_result_ongoing :
+  get_result opening_col6_reply_col5_red_col6_reply_col2_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col2_goal_unfold :
+  opening_col6_reply_col5_red_col6_reply_col2_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col5_red_col6_reply_col2_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col2_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col5_red_col6_reply_col2_result_ongoing.
+  - apply opening_col6_reply_col5_red_col6_reply_col2_turn_red.
+Qed.
+
+Definition opening_col6_reply_col5_red_col6_reply_col2_red_col6_state : game :=
+  apply_move opening_col6_reply_col5_red_col6_reply_col2_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col5_red_col6_reply_col2_red_col6 :
+  In opening_col6_reply_col5_red_col6_reply_col2_red_col6_state
+     (c4_next opening_col6_reply_col5_red_col6_reply_col2_state).
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col2_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col5_red_col6_reply_col2_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col5_red_col6_reply_col2_result_ongoing.
+  - unfold opening_col6_reply_col5_red_col6_reply_col2_state.
+    unfold opening_col6_reply_col5_red_col6_state.
+    unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col2_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col5_red_col6_reply_col2_red_col6_state ->
+  opening_col6_reply_col5_red_col6_reply_col2_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col5_red_col6_reply_col2_goal_unfold).
+  exists opening_col6_reply_col5_red_col6_reply_col2_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col5_red_col6_reply_col2_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col2_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col5_red_col6_reply_col2_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col2_red_col6_state.
+  unfold opening_col6_reply_col5_red_col6_reply_col2_state.
+  unfold opening_col6_reply_col5_red_col6_state.
+  unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col2_red_col6_result_ongoing :
+  get_result opening_col6_reply_col5_red_col6_reply_col2_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col5_red_col6_reply_col2_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col5_red_col6_reply_col2_red_col6_state m)
+       (c4_next opening_col6_reply_col5_red_col6_reply_col2_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col5_red_col6_reply_col2_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col5_red_col6_reply_col2_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col5_red_col6_reply_col2_red_col6_state.
+    unfold opening_col6_reply_col5_red_col6_reply_col2_state.
+    unfold opening_col6_reply_col5_red_col6_state.
+    unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col2_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col5_red_col6_reply_col2_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col5_red_col6_reply_col2_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col5_red_col6_reply_col2_red_col6_state
+                    opening_col6_reply_col5_red_col6_reply_col2_red_col6_result_ongoing
+                    opening_col6_reply_col5_red_col6_reply_col2_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col5_red_col6_reply_col2_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col5_red_col6_reply_col2_red_col6_state
+                    opening_col6_reply_col5_red_col6_reply_col2_red_col6_result_ongoing
+                    opening_col6_reply_col5_red_col6_reply_col2_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col5_red_col6_reply_col2_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col5_red_col6_reply_col2_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col5_red_col6_reply_col2_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col2_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col2_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col2_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col2_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col2_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col2_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col2_red_col6_state col6).
+
+Lemma opening_col6_reply_col5_red_col6_reply_col2_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col2_red_col6_state col6) ->
+  opening_col6_reply_col5_red_col6_reply_col2_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col2_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col2_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col2_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col2_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col2_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col2_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col2_red_col6_subgoals_imply_child :
+  opening_col6_reply_col5_red_col6_reply_col2_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col5_red_col6_reply_col2_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col5_red_col6_reply_col2_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col2_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col5_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col2_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col5_red_col6_reply_col2_goal_if_red_col6_child.
+  apply opening_col6_reply_col5_red_col6_reply_col2_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col5_red_col6_reply_col3_state : game :=
+  apply_move opening_col6_reply_col5_red_col6_state col3.
+
+Definition opening_col6_reply_col5_red_col6_reply_col3_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col5_red_col6_reply_col3_state.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col3_turn_red :
+  next_turn opening_col6_reply_col5_red_col6_reply_col3_state = red.
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col3_state.
+  unfold opening_col6_reply_col5_red_col6_state.
+  unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col3_result_ongoing :
+  get_result opening_col6_reply_col5_red_col6_reply_col3_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col3_goal_unfold :
+  opening_col6_reply_col5_red_col6_reply_col3_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col5_red_col6_reply_col3_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col3_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col5_red_col6_reply_col3_result_ongoing.
+  - apply opening_col6_reply_col5_red_col6_reply_col3_turn_red.
+Qed.
+
+Definition opening_col6_reply_col5_red_col6_reply_col3_red_col6_state : game :=
+  apply_move opening_col6_reply_col5_red_col6_reply_col3_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col5_red_col6_reply_col3_red_col6 :
+  In opening_col6_reply_col5_red_col6_reply_col3_red_col6_state
+     (c4_next opening_col6_reply_col5_red_col6_reply_col3_state).
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col3_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col5_red_col6_reply_col3_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col5_red_col6_reply_col3_result_ongoing.
+  - unfold opening_col6_reply_col5_red_col6_reply_col3_state.
+    unfold opening_col6_reply_col5_red_col6_state.
+    unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col3_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col5_red_col6_reply_col3_red_col6_state ->
+  opening_col6_reply_col5_red_col6_reply_col3_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col5_red_col6_reply_col3_goal_unfold).
+  exists opening_col6_reply_col5_red_col6_reply_col3_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col5_red_col6_reply_col3_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col3_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col5_red_col6_reply_col3_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col3_red_col6_state.
+  unfold opening_col6_reply_col5_red_col6_reply_col3_state.
+  unfold opening_col6_reply_col5_red_col6_state.
+  unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col3_red_col6_result_ongoing :
+  get_result opening_col6_reply_col5_red_col6_reply_col3_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col5_red_col6_reply_col3_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col5_red_col6_reply_col3_red_col6_state m)
+       (c4_next opening_col6_reply_col5_red_col6_reply_col3_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col5_red_col6_reply_col3_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col5_red_col6_reply_col3_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col5_red_col6_reply_col3_red_col6_state.
+    unfold opening_col6_reply_col5_red_col6_reply_col3_state.
+    unfold opening_col6_reply_col5_red_col6_state.
+    unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col3_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col5_red_col6_reply_col3_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col5_red_col6_reply_col3_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col5_red_col6_reply_col3_red_col6_state
+                    opening_col6_reply_col5_red_col6_reply_col3_red_col6_result_ongoing
+                    opening_col6_reply_col5_red_col6_reply_col3_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col5_red_col6_reply_col3_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col5_red_col6_reply_col3_red_col6_state
+                    opening_col6_reply_col5_red_col6_reply_col3_red_col6_result_ongoing
+                    opening_col6_reply_col5_red_col6_reply_col3_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col5_red_col6_reply_col3_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col5_red_col6_reply_col3_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col5_red_col6_reply_col3_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col3_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col3_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col3_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col3_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col3_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col3_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col3_red_col6_state col6).
+
+Lemma opening_col6_reply_col5_red_col6_reply_col3_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col3_red_col6_state col6) ->
+  opening_col6_reply_col5_red_col6_reply_col3_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col3_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col3_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col3_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col3_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col3_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col3_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col3_red_col6_subgoals_imply_child :
+  opening_col6_reply_col5_red_col6_reply_col3_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col5_red_col6_reply_col3_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col5_red_col6_reply_col3_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col3_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col5_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col3_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col5_red_col6_reply_col3_goal_if_red_col6_child.
+  apply opening_col6_reply_col5_red_col6_reply_col3_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col5_red_col6_reply_col4_state : game :=
+  apply_move opening_col6_reply_col5_red_col6_state col4.
+
+Definition opening_col6_reply_col5_red_col6_reply_col4_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col5_red_col6_reply_col4_state.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col4_turn_red :
+  next_turn opening_col6_reply_col5_red_col6_reply_col4_state = red.
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col4_state.
+  unfold opening_col6_reply_col5_red_col6_state.
+  unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col4_result_ongoing :
+  get_result opening_col6_reply_col5_red_col6_reply_col4_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col4_goal_unfold :
+  opening_col6_reply_col5_red_col6_reply_col4_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col5_red_col6_reply_col4_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col4_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col5_red_col6_reply_col4_result_ongoing.
+  - apply opening_col6_reply_col5_red_col6_reply_col4_turn_red.
+Qed.
+
+Definition opening_col6_reply_col5_red_col6_reply_col4_red_col6_state : game :=
+  apply_move opening_col6_reply_col5_red_col6_reply_col4_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col5_red_col6_reply_col4_red_col6 :
+  In opening_col6_reply_col5_red_col6_reply_col4_red_col6_state
+     (c4_next opening_col6_reply_col5_red_col6_reply_col4_state).
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col4_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col5_red_col6_reply_col4_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col5_red_col6_reply_col4_result_ongoing.
+  - unfold opening_col6_reply_col5_red_col6_reply_col4_state.
+    unfold opening_col6_reply_col5_red_col6_state.
+    unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col4_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col5_red_col6_reply_col4_red_col6_state ->
+  opening_col6_reply_col5_red_col6_reply_col4_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col5_red_col6_reply_col4_goal_unfold).
+  exists opening_col6_reply_col5_red_col6_reply_col4_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col5_red_col6_reply_col4_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col4_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col5_red_col6_reply_col4_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col4_red_col6_state.
+  unfold opening_col6_reply_col5_red_col6_reply_col4_state.
+  unfold opening_col6_reply_col5_red_col6_state.
+  unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col4_red_col6_result_ongoing :
+  get_result opening_col6_reply_col5_red_col6_reply_col4_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col5_red_col6_reply_col4_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col5_red_col6_reply_col4_red_col6_state m)
+       (c4_next opening_col6_reply_col5_red_col6_reply_col4_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col5_red_col6_reply_col4_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col5_red_col6_reply_col4_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col5_red_col6_reply_col4_red_col6_state.
+    unfold opening_col6_reply_col5_red_col6_reply_col4_state.
+    unfold opening_col6_reply_col5_red_col6_state.
+    unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col4_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col5_red_col6_reply_col4_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col5_red_col6_reply_col4_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col5_red_col6_reply_col4_red_col6_state
+                    opening_col6_reply_col5_red_col6_reply_col4_red_col6_result_ongoing
+                    opening_col6_reply_col5_red_col6_reply_col4_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col5_red_col6_reply_col4_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col5_red_col6_reply_col4_red_col6_state
+                    opening_col6_reply_col5_red_col6_reply_col4_red_col6_result_ongoing
+                    opening_col6_reply_col5_red_col6_reply_col4_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col5_red_col6_reply_col4_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col5_red_col6_reply_col4_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col5_red_col6_reply_col4_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col4_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col4_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col4_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col4_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col4_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col4_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col4_red_col6_state col6).
+
+Lemma opening_col6_reply_col5_red_col6_reply_col4_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col4_red_col6_state col6) ->
+  opening_col6_reply_col5_red_col6_reply_col4_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col4_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col4_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col4_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col4_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col4_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col4_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col4_red_col6_subgoals_imply_child :
+  opening_col6_reply_col5_red_col6_reply_col4_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col5_red_col6_reply_col4_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col5_red_col6_reply_col4_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col4_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col5_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col4_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col5_red_col6_reply_col4_goal_if_red_col6_child.
+  apply opening_col6_reply_col5_red_col6_reply_col4_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col5_red_col6_reply_col5_state : game :=
+  apply_move opening_col6_reply_col5_red_col6_state col5.
+
+Definition opening_col6_reply_col5_red_col6_reply_col5_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col5_red_col6_reply_col5_state.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col5_turn_red :
+  next_turn opening_col6_reply_col5_red_col6_reply_col5_state = red.
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col5_state.
+  unfold opening_col6_reply_col5_red_col6_state.
+  unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col5_result_ongoing :
+  get_result opening_col6_reply_col5_red_col6_reply_col5_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col5_goal_unfold :
+  opening_col6_reply_col5_red_col6_reply_col5_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col5_red_col6_reply_col5_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col5_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col5_red_col6_reply_col5_result_ongoing.
+  - apply opening_col6_reply_col5_red_col6_reply_col5_turn_red.
+Qed.
+
+Definition opening_col6_reply_col5_red_col6_reply_col5_red_col6_state : game :=
+  apply_move opening_col6_reply_col5_red_col6_reply_col5_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col5_red_col6_reply_col5_red_col6 :
+  In opening_col6_reply_col5_red_col6_reply_col5_red_col6_state
+     (c4_next opening_col6_reply_col5_red_col6_reply_col5_state).
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col5_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col5_red_col6_reply_col5_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col5_red_col6_reply_col5_result_ongoing.
+  - unfold opening_col6_reply_col5_red_col6_reply_col5_state.
+    unfold opening_col6_reply_col5_red_col6_state.
+    unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col5_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col5_red_col6_reply_col5_red_col6_state ->
+  opening_col6_reply_col5_red_col6_reply_col5_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col5_red_col6_reply_col5_goal_unfold).
+  exists opening_col6_reply_col5_red_col6_reply_col5_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col5_red_col6_reply_col5_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col5_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col5_red_col6_reply_col5_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col5_red_col6_state.
+  unfold opening_col6_reply_col5_red_col6_reply_col5_state.
+  unfold opening_col6_reply_col5_red_col6_state.
+  unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col5_red_col6_result_ongoing :
+  get_result opening_col6_reply_col5_red_col6_reply_col5_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col5_red_col6_reply_col5_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col5_red_col6_reply_col5_red_col6_state m)
+       (c4_next opening_col6_reply_col5_red_col6_reply_col5_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col5_red_col6_reply_col5_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col5_red_col6_reply_col5_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col5_red_col6_reply_col5_red_col6_state.
+    unfold opening_col6_reply_col5_red_col6_reply_col5_state.
+    unfold opening_col6_reply_col5_red_col6_state.
+    unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col5_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col5_red_col6_reply_col5_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col5_red_col6_reply_col5_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col5_red_col6_reply_col5_red_col6_state
+                    opening_col6_reply_col5_red_col6_reply_col5_red_col6_result_ongoing
+                    opening_col6_reply_col5_red_col6_reply_col5_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col5_red_col6_reply_col5_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col5_red_col6_reply_col5_red_col6_state
+                    opening_col6_reply_col5_red_col6_reply_col5_red_col6_result_ongoing
+                    opening_col6_reply_col5_red_col6_reply_col5_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col5_red_col6_reply_col5_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col5_red_col6_reply_col5_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col5_red_col6_reply_col5_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col5_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col5_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col5_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col5_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col5_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col5_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col5_red_col6_state col6).
+
+Lemma opening_col6_reply_col5_red_col6_reply_col5_red_col6_reply_subgoals_if_col6 :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col5_red_col6_reply_col5_red_col6_reply_subgoals.
+Proof.
+  intro H6.
+  repeat split.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col5_red_col6_state col0);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col5_red_col6_state col1);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col5_red_col6_state col2);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col5_red_col6_state col3);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col5_red_col6_state col4);
+      simpl; try lia; reflexivity.
+  - apply (red_can_force_win_36_after_non_col6_if_parent_col6_vertical_threat
+             opening_col6_reply_col5_red_col6_reply_col5_red_col6_state col5);
+      simpl; try lia; reflexivity.
+  - exact H6.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col5_red_col6_subgoals_imply_child :
+  opening_col6_reply_col5_red_col6_reply_col5_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col5_red_col6_reply_col5_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col5_red_col6_reply_col5_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col5_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col5_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col5_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col5_red_col6_reply_col5_goal_if_red_col6_child.
+  apply opening_col6_reply_col5_red_col6_reply_col5_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col5_red_col6_reply_col6_state : game :=
+  apply_move opening_col6_reply_col5_red_col6_state col6.
+
+Definition opening_col6_reply_col5_red_col6_reply_col6_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col5_red_col6_reply_col6_state.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col6_turn_red :
+  next_turn opening_col6_reply_col5_red_col6_reply_col6_state = red.
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col6_state.
+  unfold opening_col6_reply_col5_red_col6_state.
+  unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col6_result_ongoing :
+  get_result opening_col6_reply_col5_red_col6_reply_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col6_goal_unfold :
+  opening_col6_reply_col5_red_col6_reply_col6_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col5_red_col6_reply_col6_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col6_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col5_red_col6_reply_col6_result_ongoing.
+  - apply opening_col6_reply_col5_red_col6_reply_col6_turn_red.
+Qed.
+
+Definition opening_col6_reply_col5_red_col6_reply_col6_red_col6_state : game :=
+  apply_move opening_col6_reply_col5_red_col6_reply_col6_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col5_red_col6_reply_col6_red_col6 :
+  In opening_col6_reply_col5_red_col6_reply_col6_red_col6_state
+     (c4_next opening_col6_reply_col5_red_col6_reply_col6_state).
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col6_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col5_red_col6_reply_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col5_red_col6_reply_col6_result_ongoing.
+  - unfold opening_col6_reply_col5_red_col6_reply_col6_state.
+    unfold opening_col6_reply_col5_red_col6_state.
+    unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col6_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col5_red_col6_reply_col6_red_col6_state ->
+  opening_col6_reply_col5_red_col6_reply_col6_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col5_red_col6_reply_col6_goal_unfold).
+  exists opening_col6_reply_col5_red_col6_reply_col6_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col5_red_col6_reply_col6_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col6_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col5_red_col6_reply_col6_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col5_red_col6_reply_col6_red_col6_state.
+  unfold opening_col6_reply_col5_red_col6_reply_col6_state.
+  unfold opening_col6_reply_col5_red_col6_state.
+  unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col6_red_col6_result_ongoing :
+  get_result opening_col6_reply_col5_red_col6_reply_col6_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col5_red_col6_reply_col6_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col5_red_col6_reply_col6_red_col6_state m)
+       (c4_next opening_col6_reply_col5_red_col6_reply_col6_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col5_red_col6_reply_col6_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col5_red_col6_reply_col6_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col5_red_col6_reply_col6_red_col6_state.
+    unfold opening_col6_reply_col5_red_col6_reply_col6_state.
+    unfold opening_col6_reply_col5_red_col6_state.
+    unfold opening_col6_reply_col5_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col6_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col5_red_col6_reply_col6_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col5_red_col6_reply_col6_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col5_red_col6_reply_col6_red_col6_state
+                    opening_col6_reply_col5_red_col6_reply_col6_red_col6_result_ongoing
+                    opening_col6_reply_col5_red_col6_reply_col6_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col5_red_col6_reply_col6_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col5_red_col6_reply_col6_red_col6_state
+                    opening_col6_reply_col5_red_col6_reply_col6_red_col6_result_ongoing
+                    opening_col6_reply_col5_red_col6_reply_col6_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col5_red_col6_reply_col6_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col5_red_col6_reply_col6_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col5_red_col6_reply_col6_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col6_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col6_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col6_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col6_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col6_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col6_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col5_red_col6_reply_col6_red_col6_state col6).
+
+Lemma opening_col6_reply_col5_red_col6_reply_col6_red_col6_subgoals_imply_child :
+  opening_col6_reply_col5_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col5_red_col6_reply_col6_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col5_red_col6_reply_col6_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col6_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col5_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col6_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col5_red_col6_reply_col6_goal_if_red_col6_child.
+  apply opening_col6_reply_col5_red_col6_reply_col6_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col0_raw_if_subgoals :
+  opening_col6_reply_col5_red_col6_reply_col0_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col5_red_col6_state col0).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col5_red_col6_reply_col0_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col5_red_col6_reply_col0_state
+                  opening_col6_reply_col5_red_col6_reply_col0_result_ongoing
+                  opening_col6_reply_col5_red_col6_reply_col0_turn_red)).
+  exists opening_col6_reply_col5_red_col6_reply_col0_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col5_red_col6_reply_col0_red_col6.
+  - apply opening_col6_reply_col5_red_col6_reply_col0_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col1_raw_if_subgoals :
+  opening_col6_reply_col5_red_col6_reply_col1_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col5_red_col6_state col1).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col5_red_col6_reply_col1_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col5_red_col6_reply_col1_state
+                  opening_col6_reply_col5_red_col6_reply_col1_result_ongoing
+                  opening_col6_reply_col5_red_col6_reply_col1_turn_red)).
+  exists opening_col6_reply_col5_red_col6_reply_col1_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col5_red_col6_reply_col1_red_col6.
+  - apply opening_col6_reply_col5_red_col6_reply_col1_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col2_raw_if_subgoals :
+  opening_col6_reply_col5_red_col6_reply_col2_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col5_red_col6_state col2).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col5_red_col6_reply_col2_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col5_red_col6_reply_col2_state
+                  opening_col6_reply_col5_red_col6_reply_col2_result_ongoing
+                  opening_col6_reply_col5_red_col6_reply_col2_turn_red)).
+  exists opening_col6_reply_col5_red_col6_reply_col2_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col5_red_col6_reply_col2_red_col6.
+  - apply opening_col6_reply_col5_red_col6_reply_col2_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col3_raw_if_subgoals :
+  opening_col6_reply_col5_red_col6_reply_col3_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col5_red_col6_state col3).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col5_red_col6_reply_col3_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col5_red_col6_reply_col3_state
+                  opening_col6_reply_col5_red_col6_reply_col3_result_ongoing
+                  opening_col6_reply_col5_red_col6_reply_col3_turn_red)).
+  exists opening_col6_reply_col5_red_col6_reply_col3_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col5_red_col6_reply_col3_red_col6.
+  - apply opening_col6_reply_col5_red_col6_reply_col3_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col4_raw_if_subgoals :
+  opening_col6_reply_col5_red_col6_reply_col4_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col5_red_col6_state col4).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col5_red_col6_reply_col4_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col5_red_col6_reply_col4_state
+                  opening_col6_reply_col5_red_col6_reply_col4_result_ongoing
+                  opening_col6_reply_col5_red_col6_reply_col4_turn_red)).
+  exists opening_col6_reply_col5_red_col6_reply_col4_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col5_red_col6_reply_col4_red_col6.
+  - apply opening_col6_reply_col5_red_col6_reply_col4_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col5_raw_if_subgoals :
+  opening_col6_reply_col5_red_col6_reply_col5_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col5_red_col6_state col5).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col5_red_col6_reply_col5_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col5_red_col6_reply_col5_state
+                  opening_col6_reply_col5_red_col6_reply_col5_result_ongoing
+                  opening_col6_reply_col5_red_col6_reply_col5_turn_red)).
+  exists opening_col6_reply_col5_red_col6_reply_col5_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col5_red_col6_reply_col5_red_col6.
+  - apply opening_col6_reply_col5_red_col6_reply_col5_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col5_red_col6_reply_col6_raw_if_subgoals :
+  opening_col6_reply_col5_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col5_red_col6_state col6).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col5_red_col6_reply_col6_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col5_red_col6_reply_col6_state
+                  opening_col6_reply_col5_red_col6_reply_col6_result_ongoing
+                  opening_col6_reply_col5_red_col6_reply_col6_turn_red)).
+  exists opening_col6_reply_col5_red_col6_reply_col6_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col5_red_col6_reply_col6_red_col6.
+  - apply opening_col6_reply_col5_red_col6_reply_col6_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col5_raw_if_all_reply_subgoal_blocks :
+  opening_col6_reply_col5_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 opening_col6_reply_col5_state.
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6.
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 39
+                  opening_col6_reply_col5_state
+                  opening_col6_reply_col5_result_ongoing
+                  opening_col6_reply_col5_turn_red)).
+  exists opening_col6_reply_col5_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col5_red_col6.
+  - apply (proj2 (red_can_force_win_unfold_ongoing_yellow 38
+                    opening_col6_reply_col5_red_col6_state
+                    opening_col6_reply_col5_red_col6_result_ongoing
+                    opening_col6_reply_col5_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col5_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col5_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    destruct m.
+    + apply opening_col6_reply_col5_red_col6_reply_col0_raw_if_subgoals; exact H0.
+    + apply opening_col6_reply_col5_red_col6_reply_col1_raw_if_subgoals; exact H1.
+    + apply opening_col6_reply_col5_red_col6_reply_col2_raw_if_subgoals; exact H2.
+    + apply opening_col6_reply_col5_red_col6_reply_col3_raw_if_subgoals; exact H3.
+    + apply opening_col6_reply_col5_red_col6_reply_col4_raw_if_subgoals; exact H4.
+    + apply opening_col6_reply_col5_red_col6_reply_col5_raw_if_subgoals; exact H5.
+    + apply opening_col6_reply_col5_red_col6_reply_col6_raw_if_subgoals; exact H6.
+Qed.
+
+Lemma opening_col6_reply_col5_goal_if_all_reply_subgoal_blocks :
+  opening_col6_reply_col5_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_goal.
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6.
+  apply opening_col6_reply_col5_raw_if_all_reply_subgoal_blocks; assumption.
+Qed.
+
+Lemma opening_col6_reply_col5_firstconj_if_all_reply_subgoal_blocks :
+  opening_col6_reply_col5_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col5).
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6.
+  change (red_can_force_win 40 opening_col6_reply_col5_state).
+  apply opening_col6_reply_col5_raw_if_all_reply_subgoal_blocks; assumption.
+Qed.
+
+Lemma opening_col6_reply_col5_firstconj_if_col5col0to5_col6_and_col5col6_block :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col5_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col5).
+Proof.
+  intros H50c6 H51c6 H52c6 H53c6 H54c6 H55c6 H56.
+  apply opening_col6_reply_col5_firstconj_if_all_reply_subgoal_blocks.
+  - apply opening_col6_reply_col5_red_col6_reply_col0_red_col6_reply_subgoals_if_col6.
+    exact H50c6.
+  - apply opening_col6_reply_col5_red_col6_reply_col1_red_col6_reply_subgoals_if_col6.
+    exact H51c6.
+  - apply opening_col6_reply_col5_red_col6_reply_col2_red_col6_reply_subgoals_if_col6.
+    exact H52c6.
+  - apply opening_col6_reply_col5_red_col6_reply_col3_red_col6_reply_subgoals_if_col6.
+    exact H53c6.
+  - apply opening_col6_reply_col5_red_col6_reply_col4_red_col6_reply_subgoals_if_col6.
+    exact H54c6.
+  - apply opening_col6_reply_col5_red_col6_reply_col5_red_col6_reply_subgoals_if_col6.
+    exact H55c6.
+  - exact H56.
+Qed.
+
+Definition opening_col6_reply_col6_state : game :=
+  apply_move opening_col6_state col6.
+
+Definition opening_col6_reply_col6_goal : Prop :=
+  red_can_force_win 40 opening_col6_reply_col6_state.
+
+Lemma opening_col6_reply_col6_turn_red :
+  next_turn opening_col6_reply_col6_state = red.
+Proof.
+  unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_result_ongoing :
+  get_result opening_col6_reply_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_goal_unfold :
+  opening_col6_reply_col6_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col6_state) /\
+    red_can_force_win 39 g.
+Proof.
+  unfold opening_col6_reply_col6_goal.
+  change 40 with (S 39).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col6_result_ongoing.
+  - apply opening_col6_reply_col6_turn_red.
+Qed.
+
+Definition opening_col6_reply_col6_red_col6_state : game :=
+  apply_move opening_col6_reply_col6_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col6_red_col6 :
+  In opening_col6_reply_col6_red_col6_state
+     (c4_next opening_col6_reply_col6_state).
+Proof.
+  unfold opening_col6_reply_col6_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col6_result_ongoing.
+  - unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col6_goal_if_red_col6_child :
+  red_can_force_win 39 opening_col6_reply_col6_red_col6_state ->
+  opening_col6_reply_col6_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col6_goal_unfold).
+  exists opening_col6_reply_col6_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col6_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col6_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col6_red_col6_state.
+  unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_result_ongoing :
+  get_result opening_col6_reply_col6_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col6_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col6_red_col6_state m)
+       (c4_next opening_col6_reply_col6_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col6_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col6_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col6_red_col6_state.
+    unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_move_form :
+  red_can_force_win 39 opening_col6_reply_col6_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 38
+      (apply_move opening_col6_reply_col6_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 38
+                    opening_col6_reply_col6_red_col6_state
+                    opening_col6_reply_col6_red_col6_result_ongoing
+                    opening_col6_reply_col6_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col6_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 38
+                    opening_col6_reply_col6_red_col6_state
+                    opening_col6_reply_col6_red_col6_result_ongoing
+                    opening_col6_reply_col6_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col6_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col6_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col6_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 38 (apply_move opening_col6_reply_col6_red_col6_state col0) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col6_red_col6_state col1) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col6_red_col6_state col2) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col6_red_col6_state col3) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col6_red_col6_state col4) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col6_red_col6_state col5) /\
+  red_can_force_win 38 (apply_move opening_col6_reply_col6_red_col6_state col6).
+
+Lemma opening_col6_reply_col6_red_col6_subgoals_imply_child :
+  opening_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 39 opening_col6_reply_col6_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col6_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col6_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col6_goal_if_red_col6_child.
+  apply opening_col6_reply_col6_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col6_red_col6_reply_col0_state : game :=
+  apply_move opening_col6_reply_col6_red_col6_state col0.
+
+Definition opening_col6_reply_col6_red_col6_reply_col0_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col6_red_col6_reply_col0_state.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col0_turn_red :
+  next_turn opening_col6_reply_col6_red_col6_reply_col0_state = red.
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col0_state.
+  unfold opening_col6_reply_col6_red_col6_state.
+  unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col0_result_ongoing :
+  get_result opening_col6_reply_col6_red_col6_reply_col0_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col0_goal_unfold :
+  opening_col6_reply_col6_red_col6_reply_col0_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col6_red_col6_reply_col0_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col0_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col6_red_col6_reply_col0_result_ongoing.
+  - apply opening_col6_reply_col6_red_col6_reply_col0_turn_red.
+Qed.
+
+Definition opening_col6_reply_col6_red_col6_reply_col0_red_col6_state : game :=
+  apply_move opening_col6_reply_col6_red_col6_reply_col0_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col6_red_col6_reply_col0_red_col6 :
+  In opening_col6_reply_col6_red_col6_reply_col0_red_col6_state
+     (c4_next opening_col6_reply_col6_red_col6_reply_col0_state).
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col0_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col6_red_col6_reply_col0_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col6_red_col6_reply_col0_result_ongoing.
+  - unfold opening_col6_reply_col6_red_col6_reply_col0_state.
+    unfold opening_col6_reply_col6_red_col6_state.
+    unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col0_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col6_red_col6_reply_col0_red_col6_state ->
+  opening_col6_reply_col6_red_col6_reply_col0_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col6_red_col6_reply_col0_goal_unfold).
+  exists opening_col6_reply_col6_red_col6_reply_col0_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col6_red_col6_reply_col0_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col0_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col6_red_col6_reply_col0_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col0_red_col6_state.
+  unfold opening_col6_reply_col6_red_col6_reply_col0_state.
+  unfold opening_col6_reply_col6_red_col6_state.
+  unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col0_red_col6_result_ongoing :
+  get_result opening_col6_reply_col6_red_col6_reply_col0_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col6_red_col6_reply_col0_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state m)
+       (c4_next opening_col6_reply_col6_red_col6_reply_col0_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col6_red_col6_reply_col0_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col6_red_col6_reply_col0_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col6_red_col6_reply_col0_red_col6_state.
+    unfold opening_col6_reply_col6_red_col6_reply_col0_state.
+    unfold opening_col6_reply_col6_red_col6_state.
+    unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col0_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col6_red_col6_reply_col0_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col6_red_col6_reply_col0_red_col6_state
+                    opening_col6_reply_col6_red_col6_reply_col0_red_col6_result_ongoing
+                    opening_col6_reply_col6_red_col6_reply_col0_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col6_red_col6_reply_col0_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col6_red_col6_reply_col0_red_col6_state
+                    opening_col6_reply_col6_red_col6_reply_col0_red_col6_result_ongoing
+                    opening_col6_reply_col6_red_col6_reply_col0_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col6_red_col6_reply_col0_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col6_red_col6_reply_col0_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col6_red_col6_reply_col0_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col6).
+
+Lemma opening_col6_reply_col6_red_col6_reply_col0_red_col6_subgoals_imply_child :
+  opening_col6_reply_col6_red_col6_reply_col0_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col6_red_col6_reply_col0_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col6_red_col6_reply_col0_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col0_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col6_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col0_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col6_red_col6_reply_col0_goal_if_red_col6_child.
+  apply opening_col6_reply_col6_red_col6_reply_col0_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col6_red_col6_reply_col1_state : game :=
+  apply_move opening_col6_reply_col6_red_col6_state col1.
+
+Definition opening_col6_reply_col6_red_col6_reply_col1_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col6_red_col6_reply_col1_state.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col1_turn_red :
+  next_turn opening_col6_reply_col6_red_col6_reply_col1_state = red.
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col1_state.
+  unfold opening_col6_reply_col6_red_col6_state.
+  unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col1_result_ongoing :
+  get_result opening_col6_reply_col6_red_col6_reply_col1_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col1_goal_unfold :
+  opening_col6_reply_col6_red_col6_reply_col1_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col6_red_col6_reply_col1_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col1_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col6_red_col6_reply_col1_result_ongoing.
+  - apply opening_col6_reply_col6_red_col6_reply_col1_turn_red.
+Qed.
+
+Definition opening_col6_reply_col6_red_col6_reply_col1_red_col6_state : game :=
+  apply_move opening_col6_reply_col6_red_col6_reply_col1_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col6_red_col6_reply_col1_red_col6 :
+  In opening_col6_reply_col6_red_col6_reply_col1_red_col6_state
+     (c4_next opening_col6_reply_col6_red_col6_reply_col1_state).
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col1_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col6_red_col6_reply_col1_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col6_red_col6_reply_col1_result_ongoing.
+  - unfold opening_col6_reply_col6_red_col6_reply_col1_state.
+    unfold opening_col6_reply_col6_red_col6_state.
+    unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col1_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col6_red_col6_reply_col1_red_col6_state ->
+  opening_col6_reply_col6_red_col6_reply_col1_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col6_red_col6_reply_col1_goal_unfold).
+  exists opening_col6_reply_col6_red_col6_reply_col1_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col6_red_col6_reply_col1_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col1_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col6_red_col6_reply_col1_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col1_red_col6_state.
+  unfold opening_col6_reply_col6_red_col6_reply_col1_state.
+  unfold opening_col6_reply_col6_red_col6_state.
+  unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col1_red_col6_result_ongoing :
+  get_result opening_col6_reply_col6_red_col6_reply_col1_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col6_red_col6_reply_col1_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state m)
+       (c4_next opening_col6_reply_col6_red_col6_reply_col1_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col6_red_col6_reply_col1_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col6_red_col6_reply_col1_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col6_red_col6_reply_col1_red_col6_state.
+    unfold opening_col6_reply_col6_red_col6_reply_col1_state.
+    unfold opening_col6_reply_col6_red_col6_state.
+    unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col1_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col6_red_col6_reply_col1_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col6_red_col6_reply_col1_red_col6_state
+                    opening_col6_reply_col6_red_col6_reply_col1_red_col6_result_ongoing
+                    opening_col6_reply_col6_red_col6_reply_col1_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col6_red_col6_reply_col1_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col6_red_col6_reply_col1_red_col6_state
+                    opening_col6_reply_col6_red_col6_reply_col1_red_col6_result_ongoing
+                    opening_col6_reply_col6_red_col6_reply_col1_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col6_red_col6_reply_col1_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col6_red_col6_reply_col1_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col6_red_col6_reply_col1_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col6).
+
+Lemma opening_col6_reply_col6_red_col6_reply_col1_red_col6_subgoals_imply_child :
+  opening_col6_reply_col6_red_col6_reply_col1_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col6_red_col6_reply_col1_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col6_red_col6_reply_col1_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col1_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col6_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col1_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col6_red_col6_reply_col1_goal_if_red_col6_child.
+  apply opening_col6_reply_col6_red_col6_reply_col1_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col6_red_col6_reply_col2_state : game :=
+  apply_move opening_col6_reply_col6_red_col6_state col2.
+
+Definition opening_col6_reply_col6_red_col6_reply_col2_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col6_red_col6_reply_col2_state.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col2_turn_red :
+  next_turn opening_col6_reply_col6_red_col6_reply_col2_state = red.
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col2_state.
+  unfold opening_col6_reply_col6_red_col6_state.
+  unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col2_result_ongoing :
+  get_result opening_col6_reply_col6_red_col6_reply_col2_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col2_goal_unfold :
+  opening_col6_reply_col6_red_col6_reply_col2_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col6_red_col6_reply_col2_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col2_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col6_red_col6_reply_col2_result_ongoing.
+  - apply opening_col6_reply_col6_red_col6_reply_col2_turn_red.
+Qed.
+
+Definition opening_col6_reply_col6_red_col6_reply_col2_red_col6_state : game :=
+  apply_move opening_col6_reply_col6_red_col6_reply_col2_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col6_red_col6_reply_col2_red_col6 :
+  In opening_col6_reply_col6_red_col6_reply_col2_red_col6_state
+     (c4_next opening_col6_reply_col6_red_col6_reply_col2_state).
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col2_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col6_red_col6_reply_col2_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col6_red_col6_reply_col2_result_ongoing.
+  - unfold opening_col6_reply_col6_red_col6_reply_col2_state.
+    unfold opening_col6_reply_col6_red_col6_state.
+    unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col2_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col6_red_col6_reply_col2_red_col6_state ->
+  opening_col6_reply_col6_red_col6_reply_col2_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col6_red_col6_reply_col2_goal_unfold).
+  exists opening_col6_reply_col6_red_col6_reply_col2_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col6_red_col6_reply_col2_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col2_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col6_red_col6_reply_col2_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col2_red_col6_state.
+  unfold opening_col6_reply_col6_red_col6_reply_col2_state.
+  unfold opening_col6_reply_col6_red_col6_state.
+  unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col2_red_col6_result_ongoing :
+  get_result opening_col6_reply_col6_red_col6_reply_col2_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col6_red_col6_reply_col2_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state m)
+       (c4_next opening_col6_reply_col6_red_col6_reply_col2_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col6_red_col6_reply_col2_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col6_red_col6_reply_col2_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col6_red_col6_reply_col2_red_col6_state.
+    unfold opening_col6_reply_col6_red_col6_reply_col2_state.
+    unfold opening_col6_reply_col6_red_col6_state.
+    unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col2_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col6_red_col6_reply_col2_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col6_red_col6_reply_col2_red_col6_state
+                    opening_col6_reply_col6_red_col6_reply_col2_red_col6_result_ongoing
+                    opening_col6_reply_col6_red_col6_reply_col2_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col6_red_col6_reply_col2_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col6_red_col6_reply_col2_red_col6_state
+                    opening_col6_reply_col6_red_col6_reply_col2_red_col6_result_ongoing
+                    opening_col6_reply_col6_red_col6_reply_col2_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col6_red_col6_reply_col2_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col6_red_col6_reply_col2_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col6_red_col6_reply_col2_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state col6).
+
+Lemma opening_col6_reply_col6_red_col6_reply_col2_red_col6_subgoals_imply_child :
+  opening_col6_reply_col6_red_col6_reply_col2_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col6_red_col6_reply_col2_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col6_red_col6_reply_col2_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col2_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col6_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col2_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col6_red_col6_reply_col2_goal_if_red_col6_child.
+  apply opening_col6_reply_col6_red_col6_reply_col2_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col6_red_col6_reply_col3_state : game :=
+  apply_move opening_col6_reply_col6_red_col6_state col3.
+
+Definition opening_col6_reply_col6_red_col6_reply_col3_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col6_red_col6_reply_col3_state.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col3_turn_red :
+  next_turn opening_col6_reply_col6_red_col6_reply_col3_state = red.
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col3_state.
+  unfold opening_col6_reply_col6_red_col6_state.
+  unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col3_result_ongoing :
+  get_result opening_col6_reply_col6_red_col6_reply_col3_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col3_goal_unfold :
+  opening_col6_reply_col6_red_col6_reply_col3_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col6_red_col6_reply_col3_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col3_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col6_red_col6_reply_col3_result_ongoing.
+  - apply opening_col6_reply_col6_red_col6_reply_col3_turn_red.
+Qed.
+
+Definition opening_col6_reply_col6_red_col6_reply_col3_red_col6_state : game :=
+  apply_move opening_col6_reply_col6_red_col6_reply_col3_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col6_red_col6_reply_col3_red_col6 :
+  In opening_col6_reply_col6_red_col6_reply_col3_red_col6_state
+     (c4_next opening_col6_reply_col6_red_col6_reply_col3_state).
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col3_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col6_red_col6_reply_col3_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col6_red_col6_reply_col3_result_ongoing.
+  - unfold opening_col6_reply_col6_red_col6_reply_col3_state.
+    unfold opening_col6_reply_col6_red_col6_state.
+    unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col3_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col6_red_col6_reply_col3_red_col6_state ->
+  opening_col6_reply_col6_red_col6_reply_col3_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col6_red_col6_reply_col3_goal_unfold).
+  exists opening_col6_reply_col6_red_col6_reply_col3_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col6_red_col6_reply_col3_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col3_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col6_red_col6_reply_col3_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col3_red_col6_state.
+  unfold opening_col6_reply_col6_red_col6_reply_col3_state.
+  unfold opening_col6_reply_col6_red_col6_state.
+  unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col3_red_col6_result_ongoing :
+  get_result opening_col6_reply_col6_red_col6_reply_col3_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col6_red_col6_reply_col3_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col6_red_col6_reply_col3_red_col6_state m)
+       (c4_next opening_col6_reply_col6_red_col6_reply_col3_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col6_red_col6_reply_col3_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col6_red_col6_reply_col3_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col6_red_col6_reply_col3_red_col6_state.
+    unfold opening_col6_reply_col6_red_col6_reply_col3_state.
+    unfold opening_col6_reply_col6_red_col6_state.
+    unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col3_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col6_red_col6_reply_col3_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col6_red_col6_reply_col3_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col6_red_col6_reply_col3_red_col6_state
+                    opening_col6_reply_col6_red_col6_reply_col3_red_col6_result_ongoing
+                    opening_col6_reply_col6_red_col6_reply_col3_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col6_red_col6_reply_col3_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col6_red_col6_reply_col3_red_col6_state
+                    opening_col6_reply_col6_red_col6_reply_col3_red_col6_result_ongoing
+                    opening_col6_reply_col6_red_col6_reply_col3_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col6_red_col6_reply_col3_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col6_red_col6_reply_col3_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col6_red_col6_reply_col3_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col3_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col3_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col3_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col3_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col3_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col3_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col3_red_col6_state col6).
+
+Lemma opening_col6_reply_col6_red_col6_reply_col3_red_col6_subgoals_imply_child :
+  opening_col6_reply_col6_red_col6_reply_col3_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col6_red_col6_reply_col3_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col6_red_col6_reply_col3_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col3_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col6_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col3_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col6_red_col6_reply_col3_goal_if_red_col6_child.
+  apply opening_col6_reply_col6_red_col6_reply_col3_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col6_red_col6_reply_col4_state : game :=
+  apply_move opening_col6_reply_col6_red_col6_state col4.
+
+Definition opening_col6_reply_col6_red_col6_reply_col4_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col6_red_col6_reply_col4_state.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col4_turn_red :
+  next_turn opening_col6_reply_col6_red_col6_reply_col4_state = red.
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col4_state.
+  unfold opening_col6_reply_col6_red_col6_state.
+  unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col4_result_ongoing :
+  get_result opening_col6_reply_col6_red_col6_reply_col4_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col4_goal_unfold :
+  opening_col6_reply_col6_red_col6_reply_col4_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col6_red_col6_reply_col4_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col4_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col6_red_col6_reply_col4_result_ongoing.
+  - apply opening_col6_reply_col6_red_col6_reply_col4_turn_red.
+Qed.
+
+Definition opening_col6_reply_col6_red_col6_reply_col4_red_col6_state : game :=
+  apply_move opening_col6_reply_col6_red_col6_reply_col4_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col6_red_col6_reply_col4_red_col6 :
+  In opening_col6_reply_col6_red_col6_reply_col4_red_col6_state
+     (c4_next opening_col6_reply_col6_red_col6_reply_col4_state).
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col4_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col6_red_col6_reply_col4_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col6_red_col6_reply_col4_result_ongoing.
+  - unfold opening_col6_reply_col6_red_col6_reply_col4_state.
+    unfold opening_col6_reply_col6_red_col6_state.
+    unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col4_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col6_red_col6_reply_col4_red_col6_state ->
+  opening_col6_reply_col6_red_col6_reply_col4_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col6_red_col6_reply_col4_goal_unfold).
+  exists opening_col6_reply_col6_red_col6_reply_col4_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col6_red_col6_reply_col4_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col4_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col6_red_col6_reply_col4_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col4_red_col6_state.
+  unfold opening_col6_reply_col6_red_col6_reply_col4_state.
+  unfold opening_col6_reply_col6_red_col6_state.
+  unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col4_red_col6_result_ongoing :
+  get_result opening_col6_reply_col6_red_col6_reply_col4_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col6_red_col6_reply_col4_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col6_red_col6_reply_col4_red_col6_state m)
+       (c4_next opening_col6_reply_col6_red_col6_reply_col4_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col6_red_col6_reply_col4_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col6_red_col6_reply_col4_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col6_red_col6_reply_col4_red_col6_state.
+    unfold opening_col6_reply_col6_red_col6_reply_col4_state.
+    unfold opening_col6_reply_col6_red_col6_state.
+    unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col4_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col6_red_col6_reply_col4_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col6_red_col6_reply_col4_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col6_red_col6_reply_col4_red_col6_state
+                    opening_col6_reply_col6_red_col6_reply_col4_red_col6_result_ongoing
+                    opening_col6_reply_col6_red_col6_reply_col4_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col6_red_col6_reply_col4_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col6_red_col6_reply_col4_red_col6_state
+                    opening_col6_reply_col6_red_col6_reply_col4_red_col6_result_ongoing
+                    opening_col6_reply_col6_red_col6_reply_col4_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col6_red_col6_reply_col4_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col6_red_col6_reply_col4_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col6_red_col6_reply_col4_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col4_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col4_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col4_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col4_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col4_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col4_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col4_red_col6_state col6).
+
+Lemma opening_col6_reply_col6_red_col6_reply_col4_red_col6_subgoals_imply_child :
+  opening_col6_reply_col6_red_col6_reply_col4_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col6_red_col6_reply_col4_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col6_red_col6_reply_col4_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col4_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col6_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col4_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col6_red_col6_reply_col4_goal_if_red_col6_child.
+  apply opening_col6_reply_col6_red_col6_reply_col4_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col6_red_col6_reply_col5_state : game :=
+  apply_move opening_col6_reply_col6_red_col6_state col5.
+
+Definition opening_col6_reply_col6_red_col6_reply_col5_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col6_red_col6_reply_col5_state.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col5_turn_red :
+  next_turn opening_col6_reply_col6_red_col6_reply_col5_state = red.
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col5_state.
+  unfold opening_col6_reply_col6_red_col6_state.
+  unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col5_result_ongoing :
+  get_result opening_col6_reply_col6_red_col6_reply_col5_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col5_goal_unfold :
+  opening_col6_reply_col6_red_col6_reply_col5_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col6_red_col6_reply_col5_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col5_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col6_red_col6_reply_col5_result_ongoing.
+  - apply opening_col6_reply_col6_red_col6_reply_col5_turn_red.
+Qed.
+
+Definition opening_col6_reply_col6_red_col6_reply_col5_red_col6_state : game :=
+  apply_move opening_col6_reply_col6_red_col6_reply_col5_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col6_red_col6_reply_col5_red_col6 :
+  In opening_col6_reply_col6_red_col6_reply_col5_red_col6_state
+     (c4_next opening_col6_reply_col6_red_col6_reply_col5_state).
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col5_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col6_red_col6_reply_col5_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col6_red_col6_reply_col5_result_ongoing.
+  - unfold opening_col6_reply_col6_red_col6_reply_col5_state.
+    unfold opening_col6_reply_col6_red_col6_state.
+    unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col5_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col6_red_col6_reply_col5_red_col6_state ->
+  opening_col6_reply_col6_red_col6_reply_col5_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col6_red_col6_reply_col5_goal_unfold).
+  exists opening_col6_reply_col6_red_col6_reply_col5_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col6_red_col6_reply_col5_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col5_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col6_red_col6_reply_col5_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col5_red_col6_state.
+  unfold opening_col6_reply_col6_red_col6_reply_col5_state.
+  unfold opening_col6_reply_col6_red_col6_state.
+  unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col5_red_col6_result_ongoing :
+  get_result opening_col6_reply_col6_red_col6_reply_col5_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col6_red_col6_reply_col5_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col6_red_col6_reply_col5_red_col6_state m)
+       (c4_next opening_col6_reply_col6_red_col6_reply_col5_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col6_red_col6_reply_col5_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col6_red_col6_reply_col5_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col6_red_col6_reply_col5_red_col6_state.
+    unfold opening_col6_reply_col6_red_col6_reply_col5_state.
+    unfold opening_col6_reply_col6_red_col6_state.
+    unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col5_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col6_red_col6_reply_col5_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col6_red_col6_reply_col5_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col6_red_col6_reply_col5_red_col6_state
+                    opening_col6_reply_col6_red_col6_reply_col5_red_col6_result_ongoing
+                    opening_col6_reply_col6_red_col6_reply_col5_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col6_red_col6_reply_col5_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col6_red_col6_reply_col5_red_col6_state
+                    opening_col6_reply_col6_red_col6_reply_col5_red_col6_result_ongoing
+                    opening_col6_reply_col6_red_col6_reply_col5_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col6_red_col6_reply_col5_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col6_red_col6_reply_col5_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col6_red_col6_reply_col5_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col5_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col5_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col5_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col5_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col5_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col5_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col5_red_col6_state col6).
+
+Lemma opening_col6_reply_col6_red_col6_reply_col5_red_col6_subgoals_imply_child :
+  opening_col6_reply_col6_red_col6_reply_col5_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col6_red_col6_reply_col5_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col6_red_col6_reply_col5_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col5_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col6_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col5_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col6_red_col6_reply_col5_goal_if_red_col6_child.
+  apply opening_col6_reply_col6_red_col6_reply_col5_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Definition opening_col6_reply_col6_red_col6_reply_col6_state : game :=
+  apply_move opening_col6_reply_col6_red_col6_state col6.
+
+Definition opening_col6_reply_col6_red_col6_reply_col6_goal : Prop :=
+  red_can_force_win 38 opening_col6_reply_col6_red_col6_reply_col6_state.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col6_turn_red :
+  next_turn opening_col6_reply_col6_red_col6_reply_col6_state = red.
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col6_state.
+  unfold opening_col6_reply_col6_red_col6_state.
+  unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col6_result_ongoing :
+  get_result opening_col6_reply_col6_red_col6_reply_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col6_goal_unfold :
+  opening_col6_reply_col6_red_col6_reply_col6_goal <->
+  exists g,
+    In g (c4_next opening_col6_reply_col6_red_col6_reply_col6_state) /\
+    red_can_force_win 37 g.
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col6_goal.
+  change 38 with (S 37).
+  apply red_can_force_win_unfold_ongoing_red.
+  - apply opening_col6_reply_col6_red_col6_reply_col6_result_ongoing.
+  - apply opening_col6_reply_col6_red_col6_reply_col6_turn_red.
+Qed.
+
+Definition opening_col6_reply_col6_red_col6_reply_col6_red_col6_state : game :=
+  apply_move opening_col6_reply_col6_red_col6_reply_col6_state col6.
+
+Lemma in_c4_next_opening_col6_reply_col6_red_col6_reply_col6_red_col6 :
+  In opening_col6_reply_col6_red_col6_reply_col6_red_col6_state
+     (c4_next opening_col6_reply_col6_red_col6_reply_col6_state).
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col6_red_col6_state.
+  unfold c4_next.
+  rewrite opening_col6_reply_col6_red_col6_reply_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col6_red_col6_reply_col6_result_ongoing.
+  - unfold opening_col6_reply_col6_red_col6_reply_col6_state.
+    unfold opening_col6_reply_col6_red_col6_state.
+    unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+    simpl.
+    lia.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col6_goal_if_red_col6_child :
+  red_can_force_win 37 opening_col6_reply_col6_red_col6_reply_col6_red_col6_state ->
+  opening_col6_reply_col6_red_col6_reply_col6_goal.
+Proof.
+  intro Hchild.
+  apply (proj2 opening_col6_reply_col6_red_col6_reply_col6_goal_unfold).
+  exists opening_col6_reply_col6_red_col6_reply_col6_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col6_red_col6_reply_col6_red_col6.
+  - exact Hchild.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col6_red_col6_turn_yellow :
+  next_turn opening_col6_reply_col6_red_col6_reply_col6_red_col6_state = yellow.
+Proof.
+  unfold opening_col6_reply_col6_red_col6_reply_col6_red_col6_state.
+  unfold opening_col6_reply_col6_red_col6_reply_col6_state.
+  unfold opening_col6_reply_col6_red_col6_state.
+  unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+  simpl.
+  reflexivity.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col6_red_col6_result_ongoing :
+  get_result opening_col6_reply_col6_red_col6_reply_col6_red_col6_state = ongoing.
+Proof.
+  vm_compute.
+  reflexivity.
+Qed.
+
+Lemma in_c4_next_opening_col6_reply_col6_red_col6_reply_col6_red_col6_of_all_moves :
+  forall m,
+    In m all_moves ->
+    In (apply_move opening_col6_reply_col6_red_col6_reply_col6_red_col6_state m)
+       (c4_next opening_col6_reply_col6_red_col6_reply_col6_red_col6_state).
+Proof.
+  intros m Hinm.
+  unfold c4_next.
+  rewrite opening_col6_reply_col6_red_col6_reply_col6_red_col6_result_ongoing.
+  apply in_map.
+  apply moves_complete.
+  constructor.
+  - exact opening_col6_reply_col6_red_col6_reply_col6_red_col6_result_ongoing.
+  - unfold opening_col6_reply_col6_red_col6_reply_col6_red_col6_state.
+    unfold opening_col6_reply_col6_red_col6_reply_col6_state.
+    unfold opening_col6_reply_col6_red_col6_state.
+    unfold opening_col6_reply_col6_state, opening_col6_state, c4_init.
+    destruct m; simpl; lia.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col6_red_col6_move_form :
+  red_can_force_win 37 opening_col6_reply_col6_red_col6_reply_col6_red_col6_state <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 36
+      (apply_move opening_col6_reply_col6_red_col6_reply_col6_red_col6_state m).
+Proof.
+  split.
+  - intros Hwin m Hinm.
+    apply (proj1 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col6_red_col6_reply_col6_red_col6_state
+                    opening_col6_reply_col6_red_col6_reply_col6_red_col6_result_ongoing
+                    opening_col6_reply_col6_red_col6_reply_col6_red_col6_turn_yellow) Hwin).
+    apply in_c4_next_opening_col6_reply_col6_red_col6_reply_col6_red_col6_of_all_moves.
+    exact Hinm.
+  - intros Hmoves.
+    apply (proj2 (red_can_force_win_unfold_ongoing_yellow 36
+                    opening_col6_reply_col6_red_col6_reply_col6_red_col6_state
+                    opening_col6_reply_col6_red_col6_reply_col6_red_col6_result_ongoing
+                    opening_col6_reply_col6_red_col6_reply_col6_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col6_red_col6_reply_col6_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col6_red_col6_reply_col6_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    apply Hmoves.
+    exact Hinall.
+Qed.
+
+Definition opening_col6_reply_col6_red_col6_reply_col6_red_col6_reply_subgoals : Prop :=
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col6_red_col6_state col0) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col6_red_col6_state col1) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col6_red_col6_state col2) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col6_red_col6_state col3) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col6_red_col6_state col4) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col6_red_col6_state col5) /\
+  red_can_force_win 36 (apply_move opening_col6_reply_col6_red_col6_reply_col6_red_col6_state col6).
+
+Lemma opening_col6_reply_col6_red_col6_reply_col6_red_col6_subgoals_imply_child :
+  opening_col6_reply_col6_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 37 opening_col6_reply_col6_red_col6_reply_col6_red_col6_state.
+Proof.
+  intros Hsubs.
+  apply (proj2 opening_col6_reply_col6_red_col6_reply_col6_red_col6_move_form).
+  intros m _.
+  destruct Hsubs as [H0 [H1 [H2 [H3 [H4 [H5 H6]]]]]].
+  destruct m; assumption.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col6_goal_if_red_col6_reply_subgoals :
+  opening_col6_reply_col6_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col6_goal.
+Proof.
+  intro Hsubs.
+  apply opening_col6_reply_col6_red_col6_reply_col6_goal_if_red_col6_child.
+  apply opening_col6_reply_col6_red_col6_reply_col6_red_col6_subgoals_imply_child.
+  exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col0_raw_if_subgoals :
+  opening_col6_reply_col6_red_col6_reply_col0_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col6_red_col6_state col0).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col6_red_col6_reply_col0_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col6_red_col6_reply_col0_state
+                  opening_col6_reply_col6_red_col6_reply_col0_result_ongoing
+                  opening_col6_reply_col6_red_col6_reply_col0_turn_red)).
+  exists opening_col6_reply_col6_red_col6_reply_col0_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col6_red_col6_reply_col0_red_col6.
+  - apply opening_col6_reply_col6_red_col6_reply_col0_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col1_raw_if_subgoals :
+  opening_col6_reply_col6_red_col6_reply_col1_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col6_red_col6_state col1).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col6_red_col6_reply_col1_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col6_red_col6_reply_col1_state
+                  opening_col6_reply_col6_red_col6_reply_col1_result_ongoing
+                  opening_col6_reply_col6_red_col6_reply_col1_turn_red)).
+  exists opening_col6_reply_col6_red_col6_reply_col1_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col6_red_col6_reply_col1_red_col6.
+  - apply opening_col6_reply_col6_red_col6_reply_col1_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col2_raw_if_subgoals :
+  opening_col6_reply_col6_red_col6_reply_col2_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col6_red_col6_state col2).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col6_red_col6_reply_col2_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col6_red_col6_reply_col2_state
+                  opening_col6_reply_col6_red_col6_reply_col2_result_ongoing
+                  opening_col6_reply_col6_red_col6_reply_col2_turn_red)).
+  exists opening_col6_reply_col6_red_col6_reply_col2_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col6_red_col6_reply_col2_red_col6.
+  - apply opening_col6_reply_col6_red_col6_reply_col2_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col3_raw_if_subgoals :
+  opening_col6_reply_col6_red_col6_reply_col3_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col6_red_col6_state col3).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col6_red_col6_reply_col3_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col6_red_col6_reply_col3_state
+                  opening_col6_reply_col6_red_col6_reply_col3_result_ongoing
+                  opening_col6_reply_col6_red_col6_reply_col3_turn_red)).
+  exists opening_col6_reply_col6_red_col6_reply_col3_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col6_red_col6_reply_col3_red_col6.
+  - apply opening_col6_reply_col6_red_col6_reply_col3_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col4_raw_if_subgoals :
+  opening_col6_reply_col6_red_col6_reply_col4_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col6_red_col6_state col4).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col6_red_col6_reply_col4_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col6_red_col6_reply_col4_state
+                  opening_col6_reply_col6_red_col6_reply_col4_result_ongoing
+                  opening_col6_reply_col6_red_col6_reply_col4_turn_red)).
+  exists opening_col6_reply_col6_red_col6_reply_col4_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col6_red_col6_reply_col4_red_col6.
+  - apply opening_col6_reply_col6_red_col6_reply_col4_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col5_raw_if_subgoals :
+  opening_col6_reply_col6_red_col6_reply_col5_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col6_red_col6_state col5).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col6_red_col6_reply_col5_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col6_red_col6_reply_col5_state
+                  opening_col6_reply_col6_red_col6_reply_col5_result_ongoing
+                  opening_col6_reply_col6_red_col6_reply_col5_turn_red)).
+  exists opening_col6_reply_col6_red_col6_reply_col5_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col6_red_col6_reply_col5_red_col6.
+  - apply opening_col6_reply_col6_red_col6_reply_col5_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col6_red_col6_reply_col6_raw_if_subgoals :
+  opening_col6_reply_col6_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 38 (apply_move opening_col6_reply_col6_red_col6_state col6).
+Proof.
+  intro Hsubs.
+  change (red_can_force_win 38 opening_col6_reply_col6_red_col6_reply_col6_state).
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 37
+                  opening_col6_reply_col6_red_col6_reply_col6_state
+                  opening_col6_reply_col6_red_col6_reply_col6_result_ongoing
+                  opening_col6_reply_col6_red_col6_reply_col6_turn_red)).
+  exists opening_col6_reply_col6_red_col6_reply_col6_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col6_red_col6_reply_col6_red_col6.
+  - apply opening_col6_reply_col6_red_col6_reply_col6_red_col6_subgoals_imply_child.
+    exact Hsubs.
+Qed.
+
+Lemma opening_col6_reply_col6_raw_if_all_reply_subgoal_blocks :
+  opening_col6_reply_col6_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 opening_col6_reply_col6_state.
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6.
+  apply (proj2 (red_can_force_win_unfold_ongoing_red 39
+                  opening_col6_reply_col6_state
+                  opening_col6_reply_col6_result_ongoing
+                  opening_col6_reply_col6_turn_red)).
+  exists opening_col6_reply_col6_red_col6_state.
+  split.
+  - apply in_c4_next_opening_col6_reply_col6_red_col6.
+  - apply (proj2 (red_can_force_win_unfold_ongoing_yellow 38
+                    opening_col6_reply_col6_red_col6_state
+                    opening_col6_reply_col6_red_col6_result_ongoing
+                    opening_col6_reply_col6_red_col6_turn_yellow)).
+    intros g Hin.
+    unfold c4_next in Hin.
+    rewrite opening_col6_reply_col6_red_col6_result_ongoing in Hin.
+    apply in_map_iff in Hin.
+    destruct Hin as [m [Hg Hinm]].
+    unfold moves in Hinm.
+    rewrite opening_col6_reply_col6_red_col6_result_ongoing in Hinm.
+    apply filter_In in Hinm as [Hinall _].
+    rewrite <- Hg.
+    destruct m.
+    + apply opening_col6_reply_col6_red_col6_reply_col0_raw_if_subgoals; exact H0.
+    + apply opening_col6_reply_col6_red_col6_reply_col1_raw_if_subgoals; exact H1.
+    + apply opening_col6_reply_col6_red_col6_reply_col2_raw_if_subgoals; exact H2.
+    + apply opening_col6_reply_col6_red_col6_reply_col3_raw_if_subgoals; exact H3.
+    + apply opening_col6_reply_col6_red_col6_reply_col4_raw_if_subgoals; exact H4.
+    + apply opening_col6_reply_col6_red_col6_reply_col5_raw_if_subgoals; exact H5.
+    + apply opening_col6_reply_col6_red_col6_reply_col6_raw_if_subgoals; exact H6.
+Qed.
+
+Lemma opening_col6_reply_col6_goal_if_all_reply_subgoal_blocks :
+  opening_col6_reply_col6_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_goal.
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6.
+  apply opening_col6_reply_col6_raw_if_all_reply_subgoal_blocks; assumption.
+Qed.
+
+Lemma opening_col6_reply_col6_firstconj_if_all_reply_subgoal_blocks :
+  opening_col6_reply_col6_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col6).
+Proof.
+  intros H0 H1 H2 H3 H4 H5 H6.
+  change (red_can_force_win 40 opening_col6_reply_col6_state).
+  apply opening_col6_reply_col6_raw_if_all_reply_subgoal_blocks; assumption.
+Qed.
+
+Lemma opening_col6_reply_subgoals_if_col01_all_reply_subgoal_blocks_and_rest_raw :
+  opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col2) ->
+  red_can_force_win 40 (apply_move opening_col6_state col3) ->
+  red_can_force_win 40 (apply_move opening_col6_state col4) ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_reply_subgoals.
+Proof.
+  intros H00 H01 H02 H03 H04 H05 H06
+         H10 H11 H12 H13 H14 H15 H16
+         Hr2 Hr3 Hr4 Hr5 Hr6.
+  apply opening_col6_reply_subgoals_if_col0_and_rest_raw.
+  - apply opening_col6_reply_col0_firstconj_if_all_reply_subgoal_blocks;
+      assumption.
+  - apply opening_col6_reply_col1_firstconj_if_all_reply_subgoal_blocks;
+      assumption.
+  - exact Hr2.
+  - exact Hr3.
+  - exact Hr4.
+  - exact Hr5.
+  - exact Hr6.
+Qed.
+
+Lemma opening_col6_target_if_col01_all_reply_subgoal_blocks_and_rest_raw :
+  opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col2) ->
+  red_can_force_win 40 (apply_move opening_col6_state col3) ->
+  red_can_force_win 40 (apply_move opening_col6_state col4) ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_target.
+Proof.
+  intros H00 H01 H02 H03 H04 H05 H06
+         H10 H11 H12 H13 H14 H15 H16
+         Hr2 Hr3 Hr4 Hr5 Hr6.
+  apply opening_col6_target_if_reply_subgoals.
+  apply opening_col6_reply_subgoals_if_col01_all_reply_subgoal_blocks_and_rest_raw;
+    assumption.
+Qed.
+
+Lemma opening_col6_reply_subgoals_if_col0col0to5_col6_and_col0col6_block_and_col1col0to5_col6_and_col1col6_block_and_rest_raw :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col2) ->
+  red_can_force_win 40 (apply_move opening_col6_state col3) ->
+  red_can_force_win 40 (apply_move opening_col6_state col4) ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_reply_subgoals.
+Proof.
+  intros H00c6 H01c6 H02c6 H03c6 H04c6 H05c6 H06
+         H10c6 H11c6 H12c6 H13c6 H14c6 H15c6 H16
+         Hr2 Hr3 Hr4 Hr5 Hr6.
+  apply opening_col6_reply_subgoals_if_col0_and_rest_raw.
+  - apply opening_col6_reply_col0_firstconj_if_col0col0to5_col6_and_col0col6_block;
+      assumption.
+  - apply opening_col6_reply_col1_firstconj_if_col1col0to5_col6_and_col1col6_block;
+      assumption.
+  - exact Hr2.
+  - exact Hr3.
+  - exact Hr4.
+  - exact Hr5.
+  - exact Hr6.
+Qed.
+
+Lemma opening_col6_target_if_col0col0to5_col6_and_col0col6_block_and_col1col0to5_col6_and_col1col6_block_and_rest_raw :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col2) ->
+  red_can_force_win 40 (apply_move opening_col6_state col3) ->
+  red_can_force_win 40 (apply_move opening_col6_state col4) ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_target.
+Proof.
+  intros H00c6 H01c6 H02c6 H03c6 H04c6 H05c6 H06
+         H10c6 H11c6 H12c6 H13c6 H14c6 H15c6 H16
+         Hr2 Hr3 Hr4 Hr5 Hr6.
+  apply opening_col6_target_if_reply_subgoals.
+  apply opening_col6_reply_subgoals_if_col0col0to5_col6_and_col0col6_block_and_col1col0to5_col6_and_col1col6_block_and_rest_raw;
+    assumption.
+Qed.
+
+Lemma opening_col6_reply_subgoals_if_col0col0to5_col6_and_col0col6_block_and_col1col0to5_col6_and_col1col6_block_and_col2col0to5_col6_and_col2col6_block_and_rest_raw :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col3) ->
+  red_can_force_win 40 (apply_move opening_col6_state col4) ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_reply_subgoals.
+Proof.
+  intros H00c6 H01c6 H02c6 H03c6 H04c6 H05c6 H06
+         H10c6 H11c6 H12c6 H13c6 H14c6 H15c6 H16
+         H20c6 H21c6 H22c6 H23c6 H24c6 H25c6 H26
+         Hr3 Hr4 Hr5 Hr6.
+  apply opening_col6_reply_subgoals_if_col0_and_rest_raw.
+  - apply opening_col6_reply_col0_firstconj_if_col0col0to5_col6_and_col0col6_block;
+      assumption.
+  - apply opening_col6_reply_col1_firstconj_if_col1col0to5_col6_and_col1col6_block;
+      assumption.
+  - apply opening_col6_reply_col2_firstconj_if_col2col0to5_col6_and_col2col6_block;
+      assumption.
+  - exact Hr3.
+  - exact Hr4.
+  - exact Hr5.
+  - exact Hr6.
+Qed.
+
+Lemma opening_col6_target_if_col0col0to5_col6_and_col0col6_block_and_col1col0to5_col6_and_col1col6_block_and_col2col0to5_col6_and_col2col6_block_and_rest_raw :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col3) ->
+  red_can_force_win 40 (apply_move opening_col6_state col4) ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_target.
+Proof.
+  intros H00c6 H01c6 H02c6 H03c6 H04c6 H05c6 H06
+         H10c6 H11c6 H12c6 H13c6 H14c6 H15c6 H16
+         H20c6 H21c6 H22c6 H23c6 H24c6 H25c6 H26
+         Hr3 Hr4 Hr5 Hr6.
+  apply opening_col6_target_if_reply_subgoals.
+  apply opening_col6_reply_subgoals_if_col0col0to5_col6_and_col0col6_block_and_col1col0to5_col6_and_col1col6_block_and_col2col0to5_col6_and_col2col6_block_and_rest_raw;
+    assumption.
+Qed.
+
+Lemma opening_col6_reply_subgoals_if_col012_all_reply_subgoal_blocks_and_rest_raw :
+  opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col3) ->
+  red_can_force_win 40 (apply_move opening_col6_state col4) ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_reply_subgoals.
+Proof.
+  intros H00 H01 H02 H03 H04 H05 H06
+         H10 H11 H12 H13 H14 H15 H16
+         H20 H21 H22 H23 H24 H25 H26
+         Hr3 Hr4 Hr5 Hr6.
+  apply opening_col6_reply_subgoals_if_col01_all_reply_subgoal_blocks_and_rest_raw.
+  - exact H00.
+  - exact H01.
+  - exact H02.
+  - exact H03.
+  - exact H04.
+  - exact H05.
+  - exact H06.
+  - exact H10.
+  - exact H11.
+  - exact H12.
+  - exact H13.
+  - exact H14.
+  - exact H15.
+  - exact H16.
+  - apply opening_col6_reply_col2_firstconj_if_all_reply_subgoal_blocks;
+      assumption.
+  - exact Hr3.
+  - exact Hr4.
+  - exact Hr5.
+  - exact Hr6.
+Qed.
+
+Lemma opening_col6_target_if_col012_all_reply_subgoal_blocks_and_rest_raw :
+  opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col3) ->
+  red_can_force_win 40 (apply_move opening_col6_state col4) ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_target.
+Proof.
+  intros H00 H01 H02 H03 H04 H05 H06
+         H10 H11 H12 H13 H14 H15 H16
+         H20 H21 H22 H23 H24 H25 H26
+         Hr3 Hr4 Hr5 Hr6.
+  apply opening_col6_target_if_reply_subgoals.
+  apply opening_col6_reply_subgoals_if_col012_all_reply_subgoal_blocks_and_rest_raw;
+    assumption.
+Qed.
+
+Lemma opening_col6_reply_subgoals_if_col0col0to5_col6_and_col0col6_block_and_col1col0to5_col6_and_col1col6_block_and_col2col0to5_col6_and_col2col6_block_and_col3col0to5_col6_and_col3col6_block_and_rest_raw :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col4) ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_reply_subgoals.
+Proof.
+  intros H00c6 H01c6 H02c6 H03c6 H04c6 H05c6 H06
+         H10c6 H11c6 H12c6 H13c6 H14c6 H15c6 H16
+         H20c6 H21c6 H22c6 H23c6 H24c6 H25c6 H26
+         H30c6 H31c6 H32c6 H33c6 H34c6 H35c6 H36
+         Hr4 Hr5 Hr6.
+  apply opening_col6_reply_subgoals_if_col0_and_rest_raw.
+  - apply opening_col6_reply_col0_firstconj_if_col0col0to5_col6_and_col0col6_block;
+      assumption.
+  - apply opening_col6_reply_col1_firstconj_if_col1col0to5_col6_and_col1col6_block;
+      assumption.
+  - apply opening_col6_reply_col2_firstconj_if_col2col0to5_col6_and_col2col6_block;
+      assumption.
+  - apply opening_col6_reply_col3_firstconj_if_col3col0to5_col6_and_col3col6_block;
+      assumption.
+  - exact Hr4.
+  - exact Hr5.
+  - exact Hr6.
+Qed.
+
+Lemma opening_col6_target_if_col0col0to5_col6_and_col0col6_block_and_col1col0to5_col6_and_col1col6_block_and_col2col0to5_col6_and_col2col6_block_and_col3col0to5_col6_and_col3col6_block_and_rest_raw :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col4) ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_target.
+Proof.
+  intros H00c6 H01c6 H02c6 H03c6 H04c6 H05c6 H06
+         H10c6 H11c6 H12c6 H13c6 H14c6 H15c6 H16
+         H20c6 H21c6 H22c6 H23c6 H24c6 H25c6 H26
+         H30c6 H31c6 H32c6 H33c6 H34c6 H35c6 H36
+         Hr4 Hr5 Hr6.
+  apply opening_col6_target_if_reply_subgoals.
+  apply opening_col6_reply_subgoals_if_col0col0to5_col6_and_col0col6_block_and_col1col0to5_col6_and_col1col6_block_and_col2col0to5_col6_and_col2col6_block_and_col3col0to5_col6_and_col3col6_block_and_rest_raw;
+    assumption.
+Qed.
+
+Lemma opening_col6_reply_subgoals_if_col0123_all_reply_subgoal_blocks_and_rest_raw :
+  opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col4) ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_reply_subgoals.
+Proof.
+  intros H00 H01 H02 H03 H04 H05 H06
+         H10 H11 H12 H13 H14 H15 H16
+         H20 H21 H22 H23 H24 H25 H26
+         H30 H31 H32 H33 H34 H35 H36
+         Hr4 Hr5 Hr6.
+  apply opening_col6_reply_subgoals_if_col012_all_reply_subgoal_blocks_and_rest_raw.
+  - exact H00.
+  - exact H01.
+  - exact H02.
+  - exact H03.
+  - exact H04.
+  - exact H05.
+  - exact H06.
+  - exact H10.
+  - exact H11.
+  - exact H12.
+  - exact H13.
+  - exact H14.
+  - exact H15.
+  - exact H16.
+  - exact H20.
+  - exact H21.
+  - exact H22.
+  - exact H23.
+  - exact H24.
+  - exact H25.
+  - exact H26.
+  - apply opening_col6_reply_col3_firstconj_if_all_reply_subgoal_blocks;
+      assumption.
+  - exact Hr4.
+  - exact Hr5.
+  - exact Hr6.
+Qed.
+
+Lemma opening_col6_target_if_col0123_all_reply_subgoal_blocks_and_rest_raw :
+  opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col4) ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_target.
+Proof.
+  intros H00 H01 H02 H03 H04 H05 H06
+         H10 H11 H12 H13 H14 H15 H16
+         H20 H21 H22 H23 H24 H25 H26
+         H30 H31 H32 H33 H34 H35 H36
+         Hr4 Hr5 Hr6.
+  apply opening_col6_target_if_reply_subgoals.
+  apply opening_col6_reply_subgoals_if_col0123_all_reply_subgoal_blocks_and_rest_raw;
+    assumption.
+Qed.
+
+Lemma opening_col6_reply_subgoals_if_col0col0to5_col6_and_col0col6_block_and_col1col0to5_col6_and_col1col6_block_and_col2col0to5_col6_and_col2col6_block_and_col3col0to5_col6_and_col3col6_block_and_col4col0to5_col6_and_col4col6_block_and_rest_raw :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_reply_subgoals.
+Proof.
+  intros H00c6 H01c6 H02c6 H03c6 H04c6 H05c6 H06
+         H10c6 H11c6 H12c6 H13c6 H14c6 H15c6 H16
+         H20c6 H21c6 H22c6 H23c6 H24c6 H25c6 H26
+         H30c6 H31c6 H32c6 H33c6 H34c6 H35c6 H36
+         H40c6 H41c6 H42c6 H43c6 H44c6 H45c6 H46
+         Hr5 Hr6.
+  apply opening_col6_reply_subgoals_if_col0_and_rest_raw.
+  - apply opening_col6_reply_col0_firstconj_if_col0col0to5_col6_and_col0col6_block;
+      assumption.
+  - apply opening_col6_reply_col1_firstconj_if_col1col0to5_col6_and_col1col6_block;
+      assumption.
+  - apply opening_col6_reply_col2_firstconj_if_col2col0to5_col6_and_col2col6_block;
+      assumption.
+  - apply opening_col6_reply_col3_firstconj_if_col3col0to5_col6_and_col3col6_block;
+      assumption.
+  - apply opening_col6_reply_col4_firstconj_if_col4col0to5_col6_and_col4col6_block;
+      assumption.
+  - exact Hr5.
+  - exact Hr6.
+Qed.
+
+Lemma opening_col6_target_if_col0col0to5_col6_and_col0col6_block_and_col1col0to5_col6_and_col1col6_block_and_col2col0to5_col6_and_col2col6_block_and_col3col0to5_col6_and_col3col6_block_and_col4col0to5_col6_and_col4col6_block_and_rest_raw :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_target.
+Proof.
+  intros H00c6 H01c6 H02c6 H03c6 H04c6 H05c6 H06
+         H10c6 H11c6 H12c6 H13c6 H14c6 H15c6 H16
+         H20c6 H21c6 H22c6 H23c6 H24c6 H25c6 H26
+         H30c6 H31c6 H32c6 H33c6 H34c6 H35c6 H36
+         H40c6 H41c6 H42c6 H43c6 H44c6 H45c6 H46
+         Hr5 Hr6.
+  apply opening_col6_target_if_reply_subgoals.
+  apply opening_col6_reply_subgoals_if_col0col0to5_col6_and_col0col6_block_and_col1col0to5_col6_and_col1col6_block_and_col2col0to5_col6_and_col2col6_block_and_col3col0to5_col6_and_col3col6_block_and_col4col0to5_col6_and_col4col6_block_and_rest_raw;
+    assumption.
+Qed.
+
+Lemma opening_col6_reply_subgoals_if_col01234_all_reply_subgoal_blocks_and_rest_raw :
+  opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_reply_subgoals.
+Proof.
+  intros H00 H01 H02 H03 H04 H05 H06
+         H10 H11 H12 H13 H14 H15 H16
+         H20 H21 H22 H23 H24 H25 H26
+         H30 H31 H32 H33 H34 H35 H36
+         H40 H41 H42 H43 H44 H45 H46
+         Hr5 Hr6.
+  apply opening_col6_reply_subgoals_if_col0123_all_reply_subgoal_blocks_and_rest_raw.
+  - exact H00.
+  - exact H01.
+  - exact H02.
+  - exact H03.
+  - exact H04.
+  - exact H05.
+  - exact H06.
+  - exact H10.
+  - exact H11.
+  - exact H12.
+  - exact H13.
+  - exact H14.
+  - exact H15.
+  - exact H16.
+  - exact H20.
+  - exact H21.
+  - exact H22.
+  - exact H23.
+  - exact H24.
+  - exact H25.
+  - exact H26.
+  - exact H30.
+  - exact H31.
+  - exact H32.
+  - exact H33.
+  - exact H34.
+  - exact H35.
+  - exact H36.
+  - apply opening_col6_reply_col4_firstconj_if_all_reply_subgoal_blocks;
+      assumption.
+  - exact Hr5.
+  - exact Hr6.
+Qed.
+
+Lemma opening_col6_target_if_col01234_all_reply_subgoal_blocks_and_rest_raw :
+  opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col5) ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_target.
+Proof.
+  intros H00 H01 H02 H03 H04 H05 H06
+         H10 H11 H12 H13 H14 H15 H16
+         H20 H21 H22 H23 H24 H25 H26
+         H30 H31 H32 H33 H34 H35 H36
+         H40 H41 H42 H43 H44 H45 H46
+         Hr5 Hr6.
+  apply opening_col6_target_if_reply_subgoals.
+  apply opening_col6_reply_subgoals_if_col01234_all_reply_subgoal_blocks_and_rest_raw;
+    assumption.
+Qed.
+
+Lemma opening_col6_reply_subgoals_if_col0col0to5_col6_and_col0col6_block_and_col1col0to5_col6_and_col1col6_block_and_col2col0to5_col6_and_col2col6_block_and_col3col0to5_col6_and_col3col6_block_and_col4col0to5_col6_and_col4col6_block_and_col5col0to5_col6_and_col5col6_block_and_rest_raw :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col5_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_reply_subgoals.
+Proof.
+  intros H00c6 H01c6 H02c6 H03c6 H04c6 H05c6 H06
+         H10c6 H11c6 H12c6 H13c6 H14c6 H15c6 H16
+         H20c6 H21c6 H22c6 H23c6 H24c6 H25c6 H26
+         H30c6 H31c6 H32c6 H33c6 H34c6 H35c6 H36
+         H40c6 H41c6 H42c6 H43c6 H44c6 H45c6 H46
+         H50c6 H51c6 H52c6 H53c6 H54c6 H55c6 H56
+         Hr6.
+  apply opening_col6_reply_subgoals_if_col0_and_rest_raw.
+  - apply opening_col6_reply_col0_firstconj_if_col0col0to5_col6_and_col0col6_block;
+      assumption.
+  - apply opening_col6_reply_col1_firstconj_if_col1col0to5_col6_and_col1col6_block;
+      assumption.
+  - apply opening_col6_reply_col2_firstconj_if_col2col0to5_col6_and_col2col6_block;
+      assumption.
+  - apply opening_col6_reply_col3_firstconj_if_col3col0to5_col6_and_col3col6_block;
+      assumption.
+  - apply opening_col6_reply_col4_firstconj_if_col4col0to5_col6_and_col4col6_block;
+      assumption.
+  - apply opening_col6_reply_col5_firstconj_if_col5col0to5_col6_and_col5col6_block;
+      assumption.
+  - exact Hr6.
+Qed.
+
+Lemma opening_col6_target_if_col0col0to5_col6_and_col0col6_block_and_col1col0to5_col6_and_col1col6_block_and_col2col0to5_col6_and_col2col6_block_and_col3col0to5_col6_and_col3col6_block_and_col4col0to5_col6_and_col4col6_block_and_col5col0to5_col6_and_col5col6_block_and_rest_raw :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col5_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_target.
+Proof.
+  intros H00c6 H01c6 H02c6 H03c6 H04c6 H05c6 H06
+         H10c6 H11c6 H12c6 H13c6 H14c6 H15c6 H16
+         H20c6 H21c6 H22c6 H23c6 H24c6 H25c6 H26
+         H30c6 H31c6 H32c6 H33c6 H34c6 H35c6 H36
+         H40c6 H41c6 H42c6 H43c6 H44c6 H45c6 H46
+         H50c6 H51c6 H52c6 H53c6 H54c6 H55c6 H56
+         Hr6.
+  apply opening_col6_target_if_reply_subgoals.
+  apply opening_col6_reply_subgoals_if_col0col0to5_col6_and_col0col6_block_and_col1col0to5_col6_and_col1col6_block_and_col2col0to5_col6_and_col2col6_block_and_col3col0to5_col6_and_col3col6_block_and_col4col0to5_col6_and_col4col6_block_and_col5col0to5_col6_and_col5col6_block_and_rest_raw;
+    assumption.
+Qed.
+
+Lemma opening_col6_reply_subgoals_if_col012345_all_reply_subgoal_blocks_and_rest_raw :
+  opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_reply_subgoals.
+Proof.
+  intros H00 H01 H02 H03 H04 H05 H06
+         H10 H11 H12 H13 H14 H15 H16
+         H20 H21 H22 H23 H24 H25 H26
+         H30 H31 H32 H33 H34 H35 H36
+         H40 H41 H42 H43 H44 H45 H46
+         H50 H51 H52 H53 H54 H55 H56
+         Hr6.
+  apply opening_col6_reply_subgoals_if_col01234_all_reply_subgoal_blocks_and_rest_raw.
+  - exact H00.
+  - exact H01.
+  - exact H02.
+  - exact H03.
+  - exact H04.
+  - exact H05.
+  - exact H06.
+  - exact H10.
+  - exact H11.
+  - exact H12.
+  - exact H13.
+  - exact H14.
+  - exact H15.
+  - exact H16.
+  - exact H20.
+  - exact H21.
+  - exact H22.
+  - exact H23.
+  - exact H24.
+  - exact H25.
+  - exact H26.
+  - exact H30.
+  - exact H31.
+  - exact H32.
+  - exact H33.
+  - exact H34.
+  - exact H35.
+  - exact H36.
+  - exact H40.
+  - exact H41.
+  - exact H42.
+  - exact H43.
+  - exact H44.
+  - exact H45.
+  - exact H46.
+  - apply opening_col6_reply_col5_firstconj_if_all_reply_subgoal_blocks;
+      assumption.
+  - exact Hr6.
+Qed.
+
+Lemma opening_col6_target_if_col012345_all_reply_subgoal_blocks_and_rest_raw :
+  opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 40 (apply_move opening_col6_state col6) ->
+  opening_col6_target.
+Proof.
+  intros H00 H01 H02 H03 H04 H05 H06
+         H10 H11 H12 H13 H14 H15 H16
+         H20 H21 H22 H23 H24 H25 H26
+         H30 H31 H32 H33 H34 H35 H36
+         H40 H41 H42 H43 H44 H45 H46
+         H50 H51 H52 H53 H54 H55 H56
+         Hr6.
+  apply opening_col6_target_if_reply_subgoals.
+  apply opening_col6_reply_subgoals_if_col012345_all_reply_subgoal_blocks_and_rest_raw;
+    assumption.
+Qed.
+
+Lemma opening_col6_reply_subgoals_if_all_reply_subgoal_blocks :
+  opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_subgoals.
+Proof.
+  intros H00 H01 H02 H03 H04 H05 H06
+         H10 H11 H12 H13 H14 H15 H16
+         H20 H21 H22 H23 H24 H25 H26
+         H30 H31 H32 H33 H34 H35 H36
+         H40 H41 H42 H43 H44 H45 H46
+         H50 H51 H52 H53 H54 H55 H56
+         H60 H61 H62 H63 H64 H65 H66.
+  apply opening_col6_reply_subgoals_if_col012345_all_reply_subgoal_blocks_and_rest_raw.
+  - exact H00.
+  - exact H01.
+  - exact H02.
+  - exact H03.
+  - exact H04.
+  - exact H05.
+  - exact H06.
+  - exact H10.
+  - exact H11.
+  - exact H12.
+  - exact H13.
+  - exact H14.
+  - exact H15.
+  - exact H16.
+  - exact H20.
+  - exact H21.
+  - exact H22.
+  - exact H23.
+  - exact H24.
+  - exact H25.
+  - exact H26.
+  - exact H30.
+  - exact H31.
+  - exact H32.
+  - exact H33.
+  - exact H34.
+  - exact H35.
+  - exact H36.
+  - exact H40.
+  - exact H41.
+  - exact H42.
+  - exact H43.
+  - exact H44.
+  - exact H45.
+  - exact H46.
+  - exact H50.
+  - exact H51.
+  - exact H52.
+  - exact H53.
+  - exact H54.
+  - exact H55.
+  - exact H56.
+  - apply opening_col6_reply_col6_firstconj_if_all_reply_subgoal_blocks;
+      assumption.
+Qed.
+
+Lemma opening_col6_target_if_all_reply_subgoal_blocks :
+  opening_col6_reply_col0_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col5_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_target.
+Proof.
+  intros H00 H01 H02 H03 H04 H05 H06
+         H10 H11 H12 H13 H14 H15 H16
+         H20 H21 H22 H23 H24 H25 H26
+         H30 H31 H32 H33 H34 H35 H36
+         H40 H41 H42 H43 H44 H45 H46
+         H50 H51 H52 H53 H54 H55 H56
+         H60 H61 H62 H63 H64 H65 H66.
+  apply opening_col6_target_if_reply_subgoals.
+  apply opening_col6_reply_subgoals_if_all_reply_subgoal_blocks;
+    assumption.
+Qed.
+
+Lemma opening_col6_reply_subgoals_if_col0to5_reduced_and_col6_all_reply_subgoal_blocks :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col5_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_subgoals.
+Proof.
+  intros H00c6 H01c6 H02c6 H03c6 H04c6 H05c6 H06
+         H10c6 H11c6 H12c6 H13c6 H14c6 H15c6 H16
+         H20c6 H21c6 H22c6 H23c6 H24c6 H25c6 H26
+         H30c6 H31c6 H32c6 H33c6 H34c6 H35c6 H36
+         H40c6 H41c6 H42c6 H43c6 H44c6 H45c6 H46
+         H50c6 H51c6 H52c6 H53c6 H54c6 H55c6 H56
+         H60 H61 H62 H63 H64 H65 H66.
+  apply opening_col6_reply_subgoals_if_col0_and_rest_raw.
+  - apply opening_col6_reply_col0_firstconj_if_col0col0to5_col6_and_col0col6_block;
+      assumption.
+  - apply opening_col6_reply_col1_firstconj_if_col1col0to5_col6_and_col1col6_block;
+      assumption.
+  - apply opening_col6_reply_col2_firstconj_if_col2col0to5_col6_and_col2col6_block;
+      assumption.
+  - apply opening_col6_reply_col3_firstconj_if_col3col0to5_col6_and_col3col6_block;
+      assumption.
+  - apply opening_col6_reply_col4_firstconj_if_col4col0to5_col6_and_col4col6_block;
+      assumption.
+  - apply opening_col6_reply_col5_firstconj_if_col5col0to5_col6_and_col5col6_block;
+      assumption.
+  - apply opening_col6_reply_col6_firstconj_if_all_reply_subgoal_blocks;
+      assumption.
+Qed.
+
+Lemma opening_col6_target_if_col0to5_reduced_and_col6_all_reply_subgoal_blocks :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col5_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_target.
+Proof.
+  intros H00c6 H01c6 H02c6 H03c6 H04c6 H05c6 H06
+         H10c6 H11c6 H12c6 H13c6 H14c6 H15c6 H16
+         H20c6 H21c6 H22c6 H23c6 H24c6 H25c6 H26
+         H30c6 H31c6 H32c6 H33c6 H34c6 H35c6 H36
+         H40c6 H41c6 H42c6 H43c6 H44c6 H45c6 H46
+         H50c6 H51c6 H52c6 H53c6 H54c6 H55c6 H56
+         H60 H61 H62 H63 H64 H65 H66.
+  apply opening_col6_target_if_reply_subgoals.
+  apply opening_col6_reply_subgoals_if_col0to5_reduced_and_col6_all_reply_subgoal_blocks;
+    assumption.
+Qed.
+
+Lemma opening_col6_hard_c6_sym_10_01 :
+  apply_move opening_col6_reply_col1_red_col6_reply_col0_red_col6_state col6 =
+  apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_hard_c6_sym_20_02 :
+  apply_move opening_col6_reply_col2_red_col6_reply_col0_red_col6_state col6 =
+  apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col6.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_hard_c6_sym_30_03 :
+  apply_move opening_col6_reply_col3_red_col6_reply_col0_red_col6_state col6 =
+  apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col6.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_hard_c6_sym_40_04 :
+  apply_move opening_col6_reply_col4_red_col6_reply_col0_red_col6_state col6 =
+  apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col6.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_hard_c6_sym_50_05 :
+  apply_move opening_col6_reply_col5_red_col6_reply_col0_red_col6_state col6 =
+  apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col6.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_hard_c6_sym_21_12 :
+  apply_move opening_col6_reply_col2_red_col6_reply_col1_red_col6_state col6 =
+  apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col6.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_hard_c6_sym_31_13 :
+  apply_move opening_col6_reply_col3_red_col6_reply_col1_red_col6_state col6 =
+  apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col6.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_hard_c6_sym_41_14 :
+  apply_move opening_col6_reply_col4_red_col6_reply_col1_red_col6_state col6 =
+  apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col6.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_hard_c6_sym_51_15 :
+  apply_move opening_col6_reply_col5_red_col6_reply_col1_red_col6_state col6 =
+  apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col6.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_hard_c6_sym_32_23 :
+  apply_move opening_col6_reply_col3_red_col6_reply_col2_red_col6_state col6 =
+  apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col6.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_hard_c6_sym_42_24 :
+  apply_move opening_col6_reply_col4_red_col6_reply_col2_red_col6_state col6 =
+  apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col6.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_hard_c6_sym_52_25 :
+  apply_move opening_col6_reply_col5_red_col6_reply_col2_red_col6_state col6 =
+  apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col6.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_hard_c6_sym_43_34 :
+  apply_move opening_col6_reply_col4_red_col6_reply_col3_red_col6_state col6 =
+  apply_move opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col6.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_hard_c6_sym_53_35 :
+  apply_move opening_col6_reply_col5_red_col6_reply_col3_red_col6_state col6 =
+  apply_move opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col6.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_hard_c6_sym_54_45 :
+  apply_move opening_col6_reply_col5_red_col6_reply_col4_red_col6_state col6 =
+  apply_move opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col6.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_target_if_col0to5_sym_reduced_and_col6_all_reply_subgoal_blocks :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col5_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col0_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col1_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col2_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col3_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col4_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col5_red_col6_reply_subgoals ->
+  opening_col6_reply_col6_red_col6_reply_col6_red_col6_reply_subgoals ->
+  opening_col6_target.
+Proof.
+  intros H00c6 H01c6 H02c6 H03c6 H04c6 H05c6 H06
+         H11c6 H12c6 H13c6 H14c6 H15c6 H16
+         H22c6 H23c6 H24c6 H25c6 H26
+         H33c6 H34c6 H35c6 H36
+         H44c6 H45c6 H46
+         H55c6 H56
+         H60 H61 H62 H63 H64 H65 H66.
+  apply opening_col6_target_if_col0to5_reduced_and_col6_all_reply_subgoal_blocks.
+  - exact H00c6.
+  - exact H01c6.
+  - exact H02c6.
+  - exact H03c6.
+  - exact H04c6.
+  - exact H05c6.
+  - exact H06.
+  - rewrite opening_col6_hard_c6_sym_10_01. exact H01c6.
+  - exact H11c6.
+  - exact H12c6.
+  - exact H13c6.
+  - exact H14c6.
+  - exact H15c6.
+  - exact H16.
+  - rewrite opening_col6_hard_c6_sym_20_02. exact H02c6.
+  - rewrite opening_col6_hard_c6_sym_21_12. exact H12c6.
+  - exact H22c6.
+  - exact H23c6.
+  - exact H24c6.
+  - exact H25c6.
+  - exact H26.
+  - rewrite opening_col6_hard_c6_sym_30_03. exact H03c6.
+  - rewrite opening_col6_hard_c6_sym_31_13. exact H13c6.
+  - rewrite opening_col6_hard_c6_sym_32_23. exact H23c6.
+  - exact H33c6.
+  - exact H34c6.
+  - exact H35c6.
+  - exact H36.
+  - rewrite opening_col6_hard_c6_sym_40_04. exact H04c6.
+  - rewrite opening_col6_hard_c6_sym_41_14. exact H14c6.
+  - rewrite opening_col6_hard_c6_sym_42_24. exact H24c6.
+  - rewrite opening_col6_hard_c6_sym_43_34. exact H34c6.
+  - exact H44c6.
+  - exact H45c6.
+  - exact H46.
+  - rewrite opening_col6_hard_c6_sym_50_05. exact H05c6.
+  - rewrite opening_col6_hard_c6_sym_51_15. exact H15c6.
+  - rewrite opening_col6_hard_c6_sym_52_25. exact H25c6.
+  - rewrite opening_col6_hard_c6_sym_53_35. exact H35c6.
+  - rewrite opening_col6_hard_c6_sym_54_45. exact H45c6.
+  - exact H55c6.
+  - exact H56.
+  - exact H60.
+  - exact H61.
+  - exact H62.
+  - exact H63.
+  - exact H64.
+  - exact H65.
+  - exact H66.
+Qed.
+
+Lemma opening_col6_branch_c6_sym_10_01 :
+  apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col0 =
+  apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col1.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_branch_c6_sym_20_02 :
+  apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state col0 =
+  apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col2.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_branch_c6_sym_30_03 :
+  apply_move opening_col6_reply_col6_red_col6_reply_col3_red_col6_state col0 =
+  apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col3.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_branch_c6_sym_40_04 :
+  apply_move opening_col6_reply_col6_red_col6_reply_col4_red_col6_state col0 =
+  apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col4.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_branch_c6_sym_50_05 :
+  apply_move opening_col6_reply_col6_red_col6_reply_col5_red_col6_state col0 =
+  apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col5.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_branch_c6_sym_21_12 :
+  apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state col1 =
+  apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col2.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_branch_c6_sym_31_13 :
+  apply_move opening_col6_reply_col6_red_col6_reply_col3_red_col6_state col1 =
+  apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col3.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_branch_c6_sym_41_14 :
+  apply_move opening_col6_reply_col6_red_col6_reply_col4_red_col6_state col1 =
+  apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col4.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_branch_c6_sym_51_15 :
+  apply_move opening_col6_reply_col6_red_col6_reply_col5_red_col6_state col1 =
+  apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col5.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_branch_c6_sym_32_23 :
+  apply_move opening_col6_reply_col6_red_col6_reply_col3_red_col6_state col2 =
+  apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state col3.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_branch_c6_sym_42_24 :
+  apply_move opening_col6_reply_col6_red_col6_reply_col4_red_col6_state col2 =
+  apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state col4.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_branch_c6_sym_52_25 :
+  apply_move opening_col6_reply_col6_red_col6_reply_col5_red_col6_state col2 =
+  apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state col5.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_branch_c6_sym_43_34 :
+  apply_move opening_col6_reply_col6_red_col6_reply_col4_red_col6_state col3 =
+  apply_move opening_col6_reply_col6_red_col6_reply_col3_red_col6_state col4.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_branch_c6_sym_53_35 :
+  apply_move opening_col6_reply_col6_red_col6_reply_col5_red_col6_state col3 =
+  apply_move opening_col6_reply_col6_red_col6_reply_col3_red_col6_state col5.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_branch_c6_sym_54_45 :
+  apply_move opening_col6_reply_col6_red_col6_reply_col5_red_col6_state col4 =
+  apply_move opening_col6_reply_col6_red_col6_reply_col4_red_col6_state col5.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_target_if_col0to5_sym_reduced_and_col0to5_col6_blocks_and_col6_branch_triangular_terms :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col5_red_col6_state col6) ->
+  opening_col6_reply_col5_red_col6_reply_col6_red_col6_reply_subgoals ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col0) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col1) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col2) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col3) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col4) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col5) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col1) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col2) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col3) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col4) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col5) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state col2) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state col3) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state col4) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state col5) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col3_red_col6_state col3) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col3_red_col6_state col4) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col3_red_col6_state col5) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col4_red_col6_state col4) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col4_red_col6_state col5) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col5_red_col6_state col5) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col5_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col6_red_col6_state col0) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col6_red_col6_state col1) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col6_red_col6_state col2) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col6_red_col6_state col3) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col6_red_col6_state col4) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col6_red_col6_state col5) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col6_red_col6_state col6) ->
+  opening_col6_target.
+Proof.
+  intros H00c6 H01c6 H02c6 H03c6 H04c6 H05c6 H06
+         H11c6 H12c6 H13c6 H14c6 H15c6 H16
+         H22c6 H23c6 H24c6 H25c6 H26
+         H33c6 H34c6 H35c6 H36
+         H44c6 H45c6 H46
+         H55c6 H56
+         B00 B01 B02 B03 B04 B05 B06
+         B11 B12 B13 B14 B15 B16
+         B22 B23 B24 B25 B26
+         B33 B34 B35 B36
+         B44 B45 B46
+         B55 B56
+         B60 B61 B62 B63 B64 B65 B66.
+  assert (H60 : opening_col6_reply_col6_red_col6_reply_col0_red_col6_reply_subgoals).
+  { unfold opening_col6_reply_col6_red_col6_reply_col0_red_col6_reply_subgoals.
+    repeat split; assumption. }
+  assert (H61 : opening_col6_reply_col6_red_col6_reply_col1_red_col6_reply_subgoals).
+  { unfold opening_col6_reply_col6_red_col6_reply_col1_red_col6_reply_subgoals.
+    repeat split.
+    - rewrite opening_col6_branch_c6_sym_10_01. exact B01.
+    - exact B11.
+    - exact B12.
+    - exact B13.
+    - exact B14.
+    - exact B15.
+    - exact B16. }
+  assert (H62 : opening_col6_reply_col6_red_col6_reply_col2_red_col6_reply_subgoals).
+  { unfold opening_col6_reply_col6_red_col6_reply_col2_red_col6_reply_subgoals.
+    repeat split.
+    - rewrite opening_col6_branch_c6_sym_20_02. exact B02.
+    - rewrite opening_col6_branch_c6_sym_21_12. exact B12.
+    - exact B22.
+    - exact B23.
+    - exact B24.
+    - exact B25.
+    - exact B26. }
+  assert (H63 : opening_col6_reply_col6_red_col6_reply_col3_red_col6_reply_subgoals).
+  { unfold opening_col6_reply_col6_red_col6_reply_col3_red_col6_reply_subgoals.
+    repeat split.
+    - rewrite opening_col6_branch_c6_sym_30_03. exact B03.
+    - rewrite opening_col6_branch_c6_sym_31_13. exact B13.
+    - rewrite opening_col6_branch_c6_sym_32_23. exact B23.
+    - exact B33.
+    - exact B34.
+    - exact B35.
+    - exact B36. }
+  assert (H64 : opening_col6_reply_col6_red_col6_reply_col4_red_col6_reply_subgoals).
+  { unfold opening_col6_reply_col6_red_col6_reply_col4_red_col6_reply_subgoals.
+    repeat split.
+    - rewrite opening_col6_branch_c6_sym_40_04. exact B04.
+    - rewrite opening_col6_branch_c6_sym_41_14. exact B14.
+    - rewrite opening_col6_branch_c6_sym_42_24. exact B24.
+    - rewrite opening_col6_branch_c6_sym_43_34. exact B34.
+    - exact B44.
+    - exact B45.
+    - exact B46. }
+  assert (H65 : opening_col6_reply_col6_red_col6_reply_col5_red_col6_reply_subgoals).
+  { unfold opening_col6_reply_col6_red_col6_reply_col5_red_col6_reply_subgoals.
+    repeat split.
+    - rewrite opening_col6_branch_c6_sym_50_05. exact B05.
+    - rewrite opening_col6_branch_c6_sym_51_15. exact B15.
+    - rewrite opening_col6_branch_c6_sym_52_25. exact B25.
+    - rewrite opening_col6_branch_c6_sym_53_35. exact B35.
+    - rewrite opening_col6_branch_c6_sym_54_45. exact B45.
+    - exact B55.
+    - exact B56. }
+  assert (H66 : opening_col6_reply_col6_red_col6_reply_col6_red_col6_reply_subgoals).
+  { unfold opening_col6_reply_col6_red_col6_reply_col6_red_col6_reply_subgoals.
+    repeat split; assumption. }
+  apply opening_col6_target_if_col0to5_sym_reduced_and_col6_all_reply_subgoal_blocks;
+    assumption.
+Qed.
+
+Lemma opening_col6_mid_c6_sym_10_01 :
+  apply_move opening_col6_reply_col1_red_col6_reply_col6_red_col6_state col0 =
+  apply_move opening_col6_reply_col0_red_col6_reply_col6_red_col6_state col1.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_mid_c6_sym_20_02 :
+  apply_move opening_col6_reply_col2_red_col6_reply_col6_red_col6_state col0 =
+  apply_move opening_col6_reply_col0_red_col6_reply_col6_red_col6_state col2.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_mid_c6_sym_30_03 :
+  apply_move opening_col6_reply_col3_red_col6_reply_col6_red_col6_state col0 =
+  apply_move opening_col6_reply_col0_red_col6_reply_col6_red_col6_state col3.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_mid_c6_sym_40_04 :
+  apply_move opening_col6_reply_col4_red_col6_reply_col6_red_col6_state col0 =
+  apply_move opening_col6_reply_col0_red_col6_reply_col6_red_col6_state col4.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_mid_c6_sym_50_05 :
+  apply_move opening_col6_reply_col5_red_col6_reply_col6_red_col6_state col0 =
+  apply_move opening_col6_reply_col0_red_col6_reply_col6_red_col6_state col5.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_mid_c6_sym_21_12 :
+  apply_move opening_col6_reply_col2_red_col6_reply_col6_red_col6_state col1 =
+  apply_move opening_col6_reply_col1_red_col6_reply_col6_red_col6_state col2.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_mid_c6_sym_31_13 :
+  apply_move opening_col6_reply_col3_red_col6_reply_col6_red_col6_state col1 =
+  apply_move opening_col6_reply_col1_red_col6_reply_col6_red_col6_state col3.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_mid_c6_sym_41_14 :
+  apply_move opening_col6_reply_col4_red_col6_reply_col6_red_col6_state col1 =
+  apply_move opening_col6_reply_col1_red_col6_reply_col6_red_col6_state col4.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_mid_c6_sym_51_15 :
+  apply_move opening_col6_reply_col5_red_col6_reply_col6_red_col6_state col1 =
+  apply_move opening_col6_reply_col1_red_col6_reply_col6_red_col6_state col5.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_mid_c6_sym_32_23 :
+  apply_move opening_col6_reply_col3_red_col6_reply_col6_red_col6_state col2 =
+  apply_move opening_col6_reply_col2_red_col6_reply_col6_red_col6_state col3.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_mid_c6_sym_42_24 :
+  apply_move opening_col6_reply_col4_red_col6_reply_col6_red_col6_state col2 =
+  apply_move opening_col6_reply_col2_red_col6_reply_col6_red_col6_state col4.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_mid_c6_sym_52_25 :
+  apply_move opening_col6_reply_col5_red_col6_reply_col6_red_col6_state col2 =
+  apply_move opening_col6_reply_col2_red_col6_reply_col6_red_col6_state col5.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_mid_c6_sym_43_34 :
+  apply_move opening_col6_reply_col4_red_col6_reply_col6_red_col6_state col3 =
+  apply_move opening_col6_reply_col3_red_col6_reply_col6_red_col6_state col4.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_mid_c6_sym_53_35 :
+  apply_move opening_col6_reply_col5_red_col6_reply_col6_red_col6_state col3 =
+  apply_move opening_col6_reply_col3_red_col6_reply_col6_red_col6_state col5.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_mid_c6_sym_54_45 :
+  apply_move opening_col6_reply_col5_red_col6_reply_col6_red_col6_state col4 =
+  apply_move opening_col6_reply_col4_red_col6_reply_col6_red_col6_state col5.
+Proof. vm_compute. reflexivity. Qed.
+
+Lemma opening_col6_target_if_all_frontier_terms_triangular :
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col5_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col5_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col5_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col5_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col5_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col5_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col6_red_col6_state col0) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col6_red_col6_state col1) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col6_red_col6_state col2) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col6_red_col6_state col3) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col6_red_col6_state col4) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col6_red_col6_state col5) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col0_red_col6_reply_col6_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col6_red_col6_state col1) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col6_red_col6_state col2) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col6_red_col6_state col3) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col6_red_col6_state col4) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col6_red_col6_state col5) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col1_red_col6_reply_col6_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col6_red_col6_state col2) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col6_red_col6_state col3) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col6_red_col6_state col4) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col6_red_col6_state col5) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col2_red_col6_reply_col6_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col6_red_col6_state col3) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col6_red_col6_state col4) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col6_red_col6_state col5) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col3_red_col6_reply_col6_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col6_red_col6_state col4) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col6_red_col6_state col5) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col4_red_col6_reply_col6_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col6_red_col6_state col5) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col5_red_col6_reply_col6_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col0) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col1) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col2) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col3) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col4) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col5) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col0_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col1) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col2) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col3) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col4) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col5) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col1_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state col2) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state col3) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state col4) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state col5) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col2_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col3_red_col6_state col3) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col3_red_col6_state col4) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col3_red_col6_state col5) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col3_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col4_red_col6_state col4) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col4_red_col6_state col5) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col4_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col5_red_col6_state col5) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col5_red_col6_state col6) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col6_red_col6_state col0) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col6_red_col6_state col1) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col6_red_col6_state col2) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col6_red_col6_state col3) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col6_red_col6_state col4) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col6_red_col6_state col5) ->
+  red_can_force_win 36
+    (apply_move opening_col6_reply_col6_red_col6_reply_col6_red_col6_state col6) ->
+  opening_col6_target.
+Proof.
+  intros H00c6 H01c6 H02c6 H03c6 H04c6 H05c6
+         H11c6 H12c6 H13c6 H14c6 H15c6
+         H22c6 H23c6 H24c6 H25c6
+         H33c6 H34c6 H35c6
+         H44c6 H45c6
+         H55c6
+         C00 C01 C02 C03 C04 C05 C06
+         C11 C12 C13 C14 C15 C16
+         C22 C23 C24 C25 C26
+         C33 C34 C35 C36
+         C44 C45 C46
+         C55 C56
+         B00 B01 B02 B03 B04 B05 B06
+         B11 B12 B13 B14 B15 B16
+         B22 B23 B24 B25 B26
+         B33 B34 B35 B36
+         B44 B45 B46
+         B55 B56
+         B60 B61 B62 B63 B64 B65 B66.
+  assert (H06 : opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals).
+  { unfold opening_col6_reply_col0_red_col6_reply_col6_red_col6_reply_subgoals.
+    repeat split; assumption. }
+  assert (H16 : opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals).
+  { unfold opening_col6_reply_col1_red_col6_reply_col6_red_col6_reply_subgoals.
+    repeat split.
+    - rewrite opening_col6_mid_c6_sym_10_01. exact C01.
+    - exact C11.
+    - exact C12.
+    - exact C13.
+    - exact C14.
+    - exact C15.
+    - exact C16. }
+  assert (H26 : opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals).
+  { unfold opening_col6_reply_col2_red_col6_reply_col6_red_col6_reply_subgoals.
+    repeat split.
+    - rewrite opening_col6_mid_c6_sym_20_02. exact C02.
+    - rewrite opening_col6_mid_c6_sym_21_12. exact C12.
+    - exact C22.
+    - exact C23.
+    - exact C24.
+    - exact C25.
+    - exact C26. }
+  assert (H36 : opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals).
+  { unfold opening_col6_reply_col3_red_col6_reply_col6_red_col6_reply_subgoals.
+    repeat split.
+    - rewrite opening_col6_mid_c6_sym_30_03. exact C03.
+    - rewrite opening_col6_mid_c6_sym_31_13. exact C13.
+    - rewrite opening_col6_mid_c6_sym_32_23. exact C23.
+    - exact C33.
+    - exact C34.
+    - exact C35.
+    - exact C36. }
+  assert (H46 : opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals).
+  { unfold opening_col6_reply_col4_red_col6_reply_col6_red_col6_reply_subgoals.
+    repeat split.
+    - rewrite opening_col6_mid_c6_sym_40_04. exact C04.
+    - rewrite opening_col6_mid_c6_sym_41_14. exact C14.
+    - rewrite opening_col6_mid_c6_sym_42_24. exact C24.
+    - rewrite opening_col6_mid_c6_sym_43_34. exact C34.
+    - exact C44.
+    - exact C45.
+    - exact C46. }
+  assert (H56 : opening_col6_reply_col5_red_col6_reply_col6_red_col6_reply_subgoals).
+  { unfold opening_col6_reply_col5_red_col6_reply_col6_red_col6_reply_subgoals.
+    repeat split.
+    - rewrite opening_col6_mid_c6_sym_50_05. exact C05.
+    - rewrite opening_col6_mid_c6_sym_51_15. exact C15.
+    - rewrite opening_col6_mid_c6_sym_52_25. exact C25.
+    - rewrite opening_col6_mid_c6_sym_53_35. exact C35.
+    - rewrite opening_col6_mid_c6_sym_54_45. exact C45.
+    - exact C55.
+    - exact C56. }
+  apply opening_col6_target_if_col0to5_sym_reduced_and_col0to5_col6_blocks_and_col6_branch_triangular_terms;
+    assumption.
+Qed.
+
+Theorem root_nonloss_value_ge_1_if_tempo_monotone :
+  tempo_monotone_red_win ->
+  value_fuel 42 c4_init >= 1.
+Proof.
+  intro Htempo.
+  apply root_nonloss_value_ge_1_if_not_yellow_win.
+  apply no_yellow_root_win_if_tempo_monotone.
+  exact Htempo.
+Qed.
+
+Definition tempo_monotone_red_win_empty_42 : Prop :=
+  red_can_force_win 42 c4_init_mirror ->
+  red_can_force_win 42 c4_init.
+
+Definition opening_child_mirror_redwin_transfer_41 : Prop :=
+  forall g,
+    In g (c4_next c4_init_mirror) ->
+    red_can_force_win 41 g ->
+    red_can_force_win 41 (mirror_game g).
+
+Lemma opening_child_is_apply_move :
+  forall g,
+    In g (c4_next c4_init_mirror) ->
+    exists m, In m all_moves /\ g = apply_move c4_init_mirror m.
+Proof.
+  intros g Hin.
+  unfold c4_next in Hin.
+  rewrite get_result_c4_init_mirror_ongoing in Hin.
+  apply in_map_iff in Hin.
+  destruct Hin as [m [Hg Hinm]].
+  unfold moves in Hinm.
+  rewrite get_result_c4_init_mirror_ongoing in Hinm.
+  apply filter_In in Hinm as [Hinall _].
+  exists m.
+  split.
+  - exact Hinall.
+  - symmetry.
+    exact Hg.
+Qed.
+
+Lemma mirror_opening_apply_move :
+  forall m,
+    mirror_game (apply_move c4_init_mirror m) =
+    apply_move c4_init (mirror_move m).
+Proof.
+  intro m.
+  unfold c4_init_mirror.
+  rewrite apply_move_mirror_game.
+  rewrite mirror_game_involutive.
+  reflexivity.
+Qed.
+
+Lemma opening_child_transfer_41_move_form :
+  opening_child_mirror_redwin_transfer_41 <->
+  forall m,
+    In m all_moves ->
+    red_can_force_win 41 (apply_move c4_init_mirror m) ->
+    red_can_force_win 41 (apply_move c4_init (mirror_move m)).
+Proof.
+  split.
+  - intros Hall m Hinall Hred.
+    rewrite <- mirror_opening_apply_move.
+    apply Hall.
+    + unfold c4_next.
+      rewrite get_result_c4_init_mirror_ongoing.
+      apply in_map_iff.
+      exists m.
+      split; [reflexivity|].
+      unfold moves.
+      rewrite get_result_c4_init_mirror_ongoing.
+      apply filter_In.
+      split.
+      * exact Hinall.
+      * destruct m; simpl; reflexivity.
+    + exact Hred.
+  - intros Hmove g Hin Hred.
+    destruct (opening_child_is_apply_move g Hin) as [m [Hinall Hg]].
+    rewrite Hg in Hred.
+    rewrite Hg.
+    rewrite mirror_opening_apply_move.
+    apply Hmove; assumption.
+Qed.
+
+Theorem no_yellow_root_win_if_tempo_empty_42 :
+  tempo_monotone_red_win_empty_42 ->
+  ~ yellow_can_force_win 42 c4_init.
+Proof.
+  intros Htempo Hy.
+  pose proof (yellow_root_win_implies_red_mirror_win Hy) as Hredm.
+  pose proof (Htempo Hredm) as Hred.
+  apply (not_both_force_win 42 c4_init).
+  split; assumption.
+Qed.
+
+Theorem root_nonloss_value_ge_1_if_tempo_empty_42 :
+  tempo_monotone_red_win_empty_42 ->
+  value_fuel 42 c4_init >= 1.
+Proof.
+  intro Htempo.
+  apply root_nonloss_value_ge_1_if_not_yellow_win.
+  apply no_yellow_root_win_if_tempo_empty_42.
+  exact Htempo.
+Qed.
+
+Theorem no_yellow_root_win_if_opening_child_transfer :
+  opening_child_mirror_redwin_transfer_41 ->
+  ~ yellow_can_force_win 42 c4_init.
+Proof.
+  intros Htransfer Hy.
+  pose proof (yellow_root_win_implies_red_mirror_win Hy) as Hredm.
+  assert (Hturnm : next_turn c4_init_mirror = yellow).
+  { rewrite c4_init_mirror_shape. reflexivity. }
+  assert (Hchild : red_can_force_win 41 (apply_move c4_init_mirror col0)).
+  { apply (red_can_force_win_yellow_children 41 c4_init_mirror
+             get_result_c4_init_mirror_ongoing Hturnm Hredm).
+    apply in_c4_next_c4_init_mirror_col0. }
+  pose proof
+    (Htransfer (apply_move c4_init_mirror col0)
+      in_c4_next_c4_init_mirror_col0 Hchild) as Hred6.
+  rewrite mirror_opening_apply_move in Hred6.
+  change (red_can_force_win 41 (apply_move c4_init col6)) in Hred6.
+  assert (Hin6 : In col6 all_moves).
+  { simpl. tauto. }
+  exact (no_yellow_root_win_if_red_has_winning_opening col6 Hin6 Hred6 Hy).
+Qed.
+
+Theorem root_nonloss_value_ge_1_if_opening_child_transfer :
+  opening_child_mirror_redwin_transfer_41 ->
+  value_fuel 42 c4_init >= 1.
+Proof.
+  intro Htransfer.
+  apply root_nonloss_value_ge_1_if_not_yellow_win.
+  apply no_yellow_root_win_if_opening_child_transfer.
+  exact Htransfer.
+Qed.
+
+Theorem yellow_win_iff_not_red_nonloss :
+  forall fuel g,
+    yellow_can_force_win fuel g <-> ~ red_can_force_nonloss fuel g.
+Proof.
+  intros fuel g.
+  split.
+  - intros Hy Hred.
+    eapply red_nonloss_not_yellow_win; eauto.
+  - intros Hnot.
+    destruct (red_nonloss_or_yellow_win fuel g) as [Hred | Hy].
+    + exfalso.
+      apply Hnot.
+      exact Hred.
+    + exact Hy.
+Qed.
+
+Definition scored_children (fuel : nat) (g : game) : list (game * nat) :=
+  map (fun g' => (g', value_fuel fuel g')) (c4_next g).
+
+Definition best_red_pair (fuel : nat) (g : game) : option (game * nat) :=
+  max (comparing Nat.le snd) (scored_children fuel g).
+
+Definition best_red_child (fuel : nat) (g : game) : option game :=
+  option_map fst (best_red_pair fuel g).
+
+Lemma best_red_pair_in :
+  forall fuel g g' v,
+    best_red_pair fuel g = Some (g', v) ->
+    In (g', v) (scored_children fuel g).
+Proof.
+  intros fuel g g' v H.
+  unfold best_red_pair, scored_children in *.
+  pose proof
+    (@max_is_in (game * nat) (comparing Nat.le snd) _ _ _ _ _
+      (map (fun g' : game => (g', value_fuel fuel g')) (c4_next g)))
+    as Hmaxin.
+  rewrite H in Hmaxin.
+  exact Hmaxin.
+Qed.
+
+Lemma best_red_child_value_eq_parent :
+  forall fuel g g',
+    get_result g = ongoing ->
+    next_turn g = red ->
+    best_red_child fuel g = Some g' ->
+    value_fuel fuel g' = value_fuel (S fuel) g.
+Proof.
+  intros fuel g g' Hres Hturn Hbest.
+  unfold best_red_child in Hbest.
+  unfold option_map in Hbest.
+  unfold best_red_pair in Hbest.
+  destruct (max (comparing Nat.le snd) (scored_children fuel g))
+    as [[gb vb]|] eqn:Hmax; try discriminate.
+  inversion Hbest; subst gb; clear Hbest.
+  assert (Hin : In (g', vb) (scored_children fuel g)).
+  { unfold scored_children.
+    unfold scored_children in Hmax.
+    pose proof
+      (@max_is_in (game * nat) (comparing Nat.le snd) _ _ _ _ _
+        (map (fun g'0 : game => (g'0, value_fuel fuel g'0)) (c4_next g)))
+      as Hmaxin.
+    rewrite Hmax in Hmaxin.
+    exact Hmaxin. }
+  unfold scored_children in Hin.
+  apply in_map_iff in Hin.
+  destruct Hin as [gc [Heq Hin]].
+  inversion Heq; subst; clear Heq.
+  simpl.
+  rewrite Hres.
+  rewrite Hturn.
+  unfold scored_children in Hmax.
+  unfold scored_children.
+  rewrite Hmax.
+  reflexivity.
+Qed.
+
+Lemma yellow_child_value_ge_parent :
+  forall fuel g g',
+    get_result g = ongoing ->
+    next_turn g = yellow ->
+    In g' (c4_next g) ->
+    value_fuel fuel g' >= value_fuel (S fuel) g.
+Proof.
+  intros fuel g g' Hres Hturn Hin.
+  simpl.
+  rewrite Hres.
+  rewrite Hturn.
+  set (scored := scored_children fuel g).
+  destruct (max (comparing nat_ge snd) scored) as [[gb vb]|] eqn:Hmax.
+  - assert (Hforall :
+      Forall (fun p => (comparing nat_ge snd) p (gb, vb)) scored).
+    { pose proof
+        (@max_is_max (game * nat) (comparing nat_ge snd) _ _ _ _ _
+          scored) as Hmaxprop.
+      rewrite Hmax in Hmaxprop.
+      exact Hmaxprop. }
+    assert (Hin_pair : In (g', value_fuel fuel g') scored).
+    { unfold scored, scored_children.
+      apply in_map_iff.
+      exists g'. split; auto. }
+    rewrite Forall_forall in Hforall.
+    specialize (Hforall _ Hin_pair).
+    unfold comparing, nat_ge in Hforall.
+    simpl in Hforall.
+    subst scored.
+    unfold scored_children in Hmax.
+    rewrite Hmax.
+    simpl.
+    exact Hforall.
+  - exfalso.
+    assert (Hne : scored <> []).
+    { intro Hnil.
+      subst scored.
+      apply map_eq_nil in Hnil.
+      rewrite Hnil in Hin.
+      contradiction. }
+    destruct scored as [|p ps].
+    + contradiction.
+    + simpl in Hmax.
+      destruct (max (comparing nat_ge snd) ps); discriminate.
+Qed.
+
+Inductive guided_step : nat -> game -> game -> Prop :=
+| gs_red :
+    forall fuel g g',
+      get_result g = ongoing ->
+      next_turn g = red ->
+      best_red_child fuel g = Some g' ->
+      guided_step (S fuel) g g'
+| gs_yellow :
+    forall fuel g g',
+      get_result g = ongoing ->
+      next_turn g = yellow ->
+      In g' (c4_next g) ->
+      guided_step (S fuel) g g'.
+
+Inductive guided_path_upto : nat -> game -> game -> Prop :=
+| gpu_stop :
+    forall fuel g,
+      guided_path_upto fuel g g
+| gpu_step :
+    forall fuel g g' h,
+      guided_step (S fuel) g g' ->
+      guided_path_upto fuel g' h ->
+      guided_path_upto (S fuel) g h.
+
+Lemma value_fuel_yellow_win_zero :
+  forall fuel g,
+    get_result g = won_by yellow ->
+    value_fuel fuel g = 0.
+Proof.
+  induction fuel as [|fuel IH]; intros g Hwin; simpl.
+  - unfold score. rewrite Hwin. reflexivity.
+  - rewrite Hwin. unfold score. rewrite Hwin. reflexivity.
+Qed.
+
+Lemma value_fuel_ge_1_not_yellow_win :
+  forall fuel g,
+    value_fuel fuel g >= 1 ->
+    get_result g <> won_by yellow.
+Proof.
+  intros fuel g Hge Hcontra.
+  pose proof (value_fuel_yellow_win_zero fuel g Hcontra).
+  lia.
+Qed.
+
+Lemma guided_step_preserves_nonloss_value :
+  forall fuel g g',
+    guided_step (S fuel) g g' ->
+    value_fuel (S fuel) g >= 1 ->
+    value_fuel fuel g' >= 1.
+Proof.
+  intros fuel g g' Hstep Hval.
+  dependent destruction Hstep.
+  - pose proof (best_red_child_value_eq_parent fuel g g' H H0 H1) as Heq.
+    rewrite <- Heq in Hval.
+    exact Hval.
+  - pose proof (yellow_child_value_ge_parent fuel g g' H H0 H1) as Hge.
+    lia.
+Qed.
+
+Theorem guided_path_upto_no_yellow_loss :
+  forall fuel g h,
+    guided_path_upto fuel g h ->
+    value_fuel fuel g >= 1 ->
+    get_result h <> won_by yellow.
+Proof.
+  intros fuel g h Hpath.
+  induction Hpath.
+  - intros Hval.
+    eapply value_fuel_ge_1_not_yellow_win.
+    exact Hval.
+  - intros Hval Hbad.
+    eapply IHHpath.
+    + eapply guided_step_preserves_nonloss_value; eauto.
+    + exact Hbad.
+Qed.
+
+(* If the 42-ply root value is non-losing (>= draw), then this policy
+   cannot end in a yellow win in any prefix of a guided play. *)
+Theorem red_policy_unbeatable_if_root_nonloss :
+  value_fuel 42 c4_init >= 1 ->
+  forall h,
+    guided_path_upto 42 c4_init h ->
+    get_result h <> won_by yellow.
+Proof.
+  intros Hroot h Hpath.
+  eapply guided_path_upto_no_yellow_loss; eauto.
+Qed.
+
 (* ---------- IO ---------- *)
 
 From Stdlib Require Import String.
