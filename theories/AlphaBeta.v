@@ -1,7 +1,7 @@
 (* Copyright 2026 Bloomberg Finance L.P. *)
 (* Distributed under the terms of the Apache 2.0 license. *)
 
-(* Verified shallow alpha-beta pruning for generalized multi-player game trees.
+(** Verified shallow alpha-beta pruning for generalized multi-player game trees.
    Only shallow pruning (one level: parent -> child) is valid for >2 players;
    deep pruning provably fails (Korf 1991). *)
 
@@ -16,12 +16,13 @@ Require Import ExtLib.Core.RelDec.
 
 Require Import GameTrees.Helpers.
 Require Import GameTrees.Trees.
+Require Import GameTrees.Cotrees.
 Require Import GameTrees.Eval.
 
 Import ListNotations.
 Import SigTNotations.
 
-(* ---------- max2 algebra ---------- *)
+(** max2 algebra. *)
 
 Lemma max2_below :
   forall {A : Type} (R : relation A)
@@ -50,9 +51,9 @@ Proof.
   - apply Rf.
 Qed.
 
-(* ---------- Reference minimax ---------- *)
+(** Reference minimax. *)
 
-(* Computes the minimax score, matching eval_tree semantics. *)
+(** Computes the minimax score, matching eval_tree semantics. *)
 Fixpoint eval_val
          {G S : Type}
          (ps : players S)
@@ -69,7 +70,7 @@ Fixpoint eval_val
     end
   end.
 
-(* ---------- fold_left / map bridge ---------- *)
+(** fold_left / map bridge. *)
 
 Lemma fold_left_map :
   forall {A B C : Type} (f : A -> C -> A) (g : B -> C) (l : list B) (a : A),
@@ -91,7 +92,7 @@ Proof.
   rewrite fold_left_map. auto.
 Qed.
 
-(* ---------- Pruned evaluation ---------- *)
+(** Pruned evaluation. *)
 
 Fixpoint eval_ab
          {G S : Type}
@@ -120,7 +121,7 @@ Fixpoint eval_ab
     end
   end.
 
-(* ---------- Strong player operations ---------- *)
+(** Strong player operations. *)
 
 Definition player_ops_strong {S : Type} (ps : players S) :=
   Each (fun '(R; D) =>
@@ -128,7 +129,7 @@ Definition player_ops_strong {S : Type} (ps : players S) :=
     Reflexive R /\ Transitive R /\
     StronglyConnected R /\ Antisymmetric S eq R) ps.
 
-(* ---------- Adversarial condition ---------- *)
+(** Adversarial condition. *)
 
 CoInductive adversarial_players {S : Type} : players S -> Prop :=
 | adversarial_cons :
@@ -137,7 +138,7 @@ CoInductive adversarial_players {S : Type} : players S -> Prop :=
       adversarial_players ps ->
       adversarial_players (Cons p ps).
 
-(* ---------- Coinductive projections ---------- *)
+(** Coinductive projections. *)
 
 Definition Each_hd {A : Type} {P : A -> Prop} {a : A} {s : Stream A}
   (H : Each P (Cons a s)) : P a :=
@@ -155,7 +156,7 @@ Definition adversarial_tl {S : Type} {p : {R : relation S & RelDec R}} {ps : pla
   (H : adversarial_players (Cons p ps)) : adversarial_players ps :=
   match H with adversarial_cons _ _ _ rest => rest end.
 
-(* ---------- Fishburn property ---------- *)
+(** Fishburn property. *)
 
 Definition fishburn {S : Type} (cut : S -> bool) (v v' : S) : Prop :=
   (cut v = false -> v' = v) /\
@@ -173,14 +174,14 @@ Proof.
   intros S v v' [H _]. apply H. auto.
 Qed.
 
-(* A cutoff is R-monotone: if R x y and cut x = true, then cut y = true. *)
+(** A cutoff is R-monotone: if R x y and cut x = true, then cut y = true. *)
 Definition cutoff_monotone {S : Type} (R : relation S) (cut : S -> bool) : Prop :=
   forall x y, R x y -> cut x = true -> cut y = true.
 
 Definition player_rel {S : Type} (ps : players S) : relation S :=
   (Streams.hd ps).1.
 
-(* ---------- fold_left monotonicity ---------- *)
+(** fold_left monotonicity. *)
 
 Lemma fold_left_max2_R :
   forall {A : Type} (R : relation A)
@@ -214,7 +215,7 @@ Proof.
   apply IH.
 Qed.
 
-(* ---------- Main theorem ---------- *)
+(** Main theorem. *)
 
 Theorem eval_ab_fishburn :
   forall {G S : Type}
@@ -322,7 +323,165 @@ Proof.
   unfold cutoff_monotone. intros. discriminate.
 Qed.
 
-(* ---------- Nat instances ---------- *)
+(** * Lazy alpha-beta on cotrees *)
+
+(** Evaluate a possibly infinite [cotree] with depth-limited alpha-beta
+    pruning.
+
+    The inductive-tree evaluator [eval_ab] requires a finite [tree] up front.
+    This evaluator consumes a [cotree] directly: it pattern matches only on the
+    children it actually visits, so pruned branches need not be materialized.
+
+    The parameter [depth] bounds how many tree levels are evaluated. The
+    parameter [width] bounds how many siblings after the first child are
+    inspected at each node; the first child is evaluated before the width-limited
+    sibling loop, matching the shape of [eval_ab] on non-empty child lists. *)
+Fixpoint eval_ab_co
+    {G S : Type}
+    (depth width : nat)
+    (ps : players S)
+    (score : G -> S)
+    (cutoff : S -> bool)
+    (ct : cotree G) : S :=
+  match depth with
+  | O => score (match ct with conode g _ => g end)
+  | S depth' =>
+    match ps with
+    | Streams.Cons (existT _ R D) ps' =>
+      match ct with
+      | conode g f =>
+        match f with
+        | conil => score g
+        | cocons first_child rest =>
+          let first_val := eval_ab_co depth' width ps' score
+                             (fun _ => false) first_child in
+          (fix go (fuel : nat) (best : S)
+               (remaining : colist (cotree G)) : S :=
+            match fuel with
+            | O => best
+            | S fuel' =>
+              match remaining with
+              | conil => best
+              | cocons child rest' =>
+                if cutoff best then best
+                else
+                  let v := eval_ab_co depth' width ps' score
+                             (fun s => @rel_dec _ _ D s best) child in
+                  go fuel' (max2 R best v) rest'
+              end
+            end) width first_val rest
+        end
+      end
+    end
+  end.
+
+(** Convert the finite prefix inspected by [eval_ab_co] into an inductive
+    [tree].
+
+    This is not the same as taking a uniform rectangular prefix of the cotree:
+    for non-leaf nodes, the first child is always included and then up to
+    [width] additional siblings are included. That mirrors the traversal in
+    [eval_ab_co], where the first child provides the initial best score and the
+    remaining siblings are processed by a width-bounded loop. *)
+Fixpoint materialize {A : Type} (depth width : nat) (ct : cotree A)
+    : tree A :=
+  match depth with
+  | O => match ct with conode a _ => node a [] end
+  | S depth' =>
+    match ct with
+    | conode a f =>
+      node a (match f with
+              | conil => []
+              | cocons first rest =>
+                materialize depth' width first ::
+                map (materialize depth' width)
+                    (Cotrees.list_of_colist width rest)
+              end)
+    end
+  end.
+
+(** The lazy cotree evaluator agrees with ordinary alpha-beta on the
+    materialized finite prefix it traverses.
+
+    This theorem is the bridge between coinductive game trees and the existing
+    inductive-tree alpha-beta theory. It says [eval_ab_co] is not a new scoring
+    semantics; it is [eval_ab] run over the finite [materialize]d view of the
+    cotree. *)
+Theorem eval_ab_co_correct :
+  forall {G S : Type} (depth width : nat) (ps : players S)
+         (score : G -> S) (cutoff : S -> bool) (ct : cotree G),
+    eval_ab_co depth width ps score cutoff ct =
+    eval_ab ps score cutoff (materialize depth width ct).
+Proof.
+  induction depth as [|n IH]; intros width ps score cutoff [g f].
+  - destruct ps as [[R D] ps']. reflexivity.
+  - destruct ps as [[R D] ps']. simpl.
+    destruct f as [|first rest].
+    + reflexivity.
+    + rewrite IH.
+      set (init := eval_ab ps' score (fun _ : S => false)
+                     (materialize n width first)).
+      clearbody init.
+      assert (Hgo : forall fuel init0 rest0,
+        (fix go (fuel0 : nat) (best : S)
+             (remaining : colist (cotree G)) : S :=
+          match fuel0 with
+          | O => best
+          | S fuel' =>
+            match remaining with
+            | conil => best
+            | cocons child rest' =>
+              if cutoff best then best
+              else
+                let v := eval_ab_co n width ps' score
+                           (fun s => @rel_dec _ _ D s best) child in
+                go fuel' (max2 R best v) rest'
+            end
+          end) fuel init0 rest0
+        =
+        (fix go (best : S) (remaining : list (tree G)) : S :=
+          match remaining with
+          | [] => best
+          | c' :: remaining' =>
+            if cutoff best then best
+            else
+              let v := eval_ab ps' score
+                         (fun s => @rel_dec _ _ D s best) c' in
+              go (max2 R best v) remaining'
+          end) init0
+          (map (materialize n width) (Cotrees.list_of_colist fuel rest0))).
+      { induction fuel as [|f IHf]; intros init0 rest0.
+        - reflexivity.
+        - destruct rest0 as [|child rest'].
+          + simpl. reflexivity.
+          + simpl.
+            destruct (cutoff init0) eqn:Ecut.
+            * reflexivity.
+            * rewrite IH. apply IHf. }
+      apply Hgo.
+Qed.
+
+(** The lazy cotree evaluator computes minimax on the materialized prefix when
+    the player stream satisfies the same hypotheses required by
+    [eval_ab_correct].
+
+    This packages [eval_ab_co_correct] with the existing [eval_ab_correct]
+    theorem: first relate [eval_ab_co] to [eval_ab] on [materialize], then use
+    the previously-proved alpha-beta/minimax equivalence. *)
+Corollary eval_ab_co_minimax :
+  forall {G S : Type} (depth width : nat) (ps : players S)
+         (score : G -> S) (ct : cotree G),
+    player_ops_strong ps ->
+    adversarial_players ps ->
+    eval_ab_co depth width ps score (fun _ => false) ct =
+    eval_val ps score (materialize depth width ct).
+Proof.
+  intros G S depth width ps score ct Hops Hadv.
+  rewrite eval_ab_co_correct.
+  apply eval_ab_correct; auto.
+Qed.
+
+(** Nat instances. *)
 
 #[export] Instance RelDec_nat_le : @RelDec nat Nat.le.
 Proof. constructor. exact Nat.leb. Defined.
@@ -388,7 +547,7 @@ Definition eval_val_2p (sc : nat -> nat) (t : tree nat) : nat :=
 Definition eval_ab_2p (sc : nat -> nat) (t : tree nat) : nat :=
   eval_ab players_le_ge sc (fun _ => false) t.
 
-(* Smoke test *)
+(** Smoke test *)
 Definition example_tree : tree nat :=
   node 0 [node 0 [node 3 []; node 5 []];
           node 0 [node 6 []; node 9 []; node 2 []];

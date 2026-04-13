@@ -1,7 +1,7 @@
 (* Copyright 2024 Bloomberg Finance L.P. *)
 (* Distributed under the terms of the Apache 2.0 license. *)
 
-(* A brute-force propositional SAT solver. *)
+(** A brute-force propositional SAT solver. *)
 From Stdlib Require Import List PeanoNat Psatz Arith.
 From Stdlib Require Import Wellfounded.Inverse_Image.
 
@@ -308,7 +308,7 @@ Fixpoint somes {A : Type} (l : list (option A)) : list A :=
   | None :: xs => somes xs
   end.
 
-(* Look for a node in the game tree that evaluates to a [Some] value. *)
+(** Look for a node in the game tree that evaluates to a [Some] value. *)
 Definition find_sat (f : formula) : option (list (name * bool)) :=
   fold_tree
     (fun (g : game) (l : list (option (list (name * bool)))) =>
@@ -317,55 +317,3 @@ Definition find_sat (f : formula) : option (list (name * bool)) :=
        | _ => List.hd_error (somes l)
        end)
     (Trees.unfold_tree (later f) (sat_next_intrinsic f) []).
-
-From Stdlib Require Import String.
-#[local] Open Scope string_scope.
-
-Require Import SimpleIO.SimpleIO.
-From Stdlib Require Import Sorting.Mergesort.
-Require Import ExtLib.Core.RelDec.
-Import IO.Notations.
-
-Definition print_assignment (f : name * bool) : IO unit :=
-  let '(n, b) := f in
-  print_int (ExtrOcamlIntConv.int_of_nat n) ;;
-  print_string " = " ;;
-  print_string (if b then "true" else "false") ;;
-  print_newline.
-
-Fixpoint iter {A : Type} (f : A -> IO unit) (l : list A) : IO unit :=
-  match l with
-  | [] => IO.ret tt
-  | x :: xs => f x ;; iter f xs
-  end.
-
-Definition print_solution (o : option (list (name * bool))) : IO unit :=
-  match o with
-  | None => print_string "unsat"
-  | Some l =>
-      print_string "sat" ;;
-      print_newline ;;
-      iter print_assignment l
-  end.
-
-Definition main : IO unit :=
-  print_solution (find_sat (f_not (fimplies (f_var 0) (f_var 1)))).
-
-Definition unsafe_main : io_unit :=
-  IO.unsafe_run main.
-
-From Stdlib Require Import ExtrOcamlBasic.
-From Stdlib Require Import ExtrOcamlNatInt.
-From Stdlib Require Import ExtrOcamlString.
-Extract Inductive sigT => "( * )" [""].
-Extract Inlined Constant negb => "not".
-Extract Inlined Constant fst => "fst".
-Extract Inlined Constant snd => "snd".
-Extract Inlined Constant app => "(@)".
-Extract Inlined Constant concat => "List.concat".
-Extract Inlined Constant map => "List.map".
-Extract Inlined Constant find => "List.find_opt".
-Extract Inlined Constant ltb => "(<)".
-Extraction Inline zip_proofs.
-Extraction Inline unfold_tree_aux.
-Extraction "sat.ml" unsafe_main.

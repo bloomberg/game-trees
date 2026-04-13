@@ -1,6 +1,8 @@
 (* Copyright 2025 Bloomberg Finance L.P. *)
 (* Distributed under the terms of the Apache 2.0 license. *)
 
+(** Tic-tac-toe game-tree formalization with a complete minimax proof. *)
+
 Require Import Corelib.Classes.RelationClasses.
 Require Import Corelib.Program.Basics.
 From Stdlib Require Import List.
@@ -221,7 +223,7 @@ Proof.
   destruct p; intuition (auto with *).
 Qed.
 
-(* Includes invalid games too, but we don't care at the moment *)
+(** Includes invalid games too, but we don't care at the moment *)
 Lemma all_games_are_in_all_games : forall (g : game), In g all_games.
 Proof.
   intros [[a b c d e f g h i] turn].
@@ -237,7 +239,7 @@ Proof.
   all: eapply all_cells_are_in_all_cells.
 Qed.
 
-(* The next moves function,
+(** The next moves function,
    where the next moves are guaranteed by [game_step] to be legal moves. *)
 Lemma ttt_next_intrinsic :
   forall g1 : game,
@@ -255,7 +257,7 @@ Proof.
   constructor; auto.
 Defined.
 
-(* A relation on game states, where [g1] is a later board in the game then [g2]. *)
+(** A relation on game states, where [g1] is a later board in the game then [g2]. *)
 Definition later (g1 g2 : game) : Prop :=
   empty_cells g1 < empty_cells g2.
 
@@ -286,7 +288,7 @@ Defined.
 Definition complete_tree : tree game :=
   unfold_tree (flip game_step) ttt_next_intrinsic ttt_init.
 
-(* True theorem but it takes too long (about a minute on my machine) to run! *)
+(** True theorem but it takes too long (about a minute on my machine) to run! *)
 Definition ttt_conext (g : game) : Cotrees.colist game :=
   Cotrees.colist_of_list (ttt_next g).
 
@@ -295,21 +297,12 @@ Proof.
   exists 10; vm_compute; reflexivity.
 Defined.
 
-(* Alternatively, you can define [complete_tree] through the coinductive unfold function. *)
+(** Alternatively, you can define [complete_tree] through the coinductive unfold function. *)
 Definition complete_tree_again : tree game :=
   Cotrees.tree_of_cotree ttt_is_finite.1 (Cotrees.unfold_cotree ttt_conext ttt_init).
 
-From Stdlib Require Import String.
-#[local] Open Scope string_scope.
-
-Require Import SimpleIO.SimpleIO.
-Require Import ExtLib.Core.RelDec.
-Import IO.Notations.
-
-(* Here we have a tic-tac-toe implementation with an unbeatable AI,
-   to showcase our game tree generation
-   and minimax algorithm implementation. *)
-
+(** Score tic-tac-toe positions for minimax, where [x] maximizes and [o]
+    minimizes. *)
 Definition score (g : game) : nat :=
   match get_result g with
   | won_by x => 2
@@ -318,108 +311,17 @@ Definition score (g : game) : nat :=
   | ongoing => 1
   end.
 
-(* The minimax value of tic-tac-toe is 1 (a draw).
-   This means the maximizer (X) can guarantee at least a draw,
-   and the minimizer (O) can guarantee at most a draw.
-   Combined with [eval_ab_correct], this proves the AI is unbeatable:
-   it computes exact minimax via alpha-beta on the complete game tree,
-   so it always plays optimally and never loses.
+(** The minimax value of tic-tac-toe is 1, a draw.
 
-   We evaluate on [complete_tree_again] (the cotree-based construction)
-   because [complete_tree] uses well-founded [Acc] recursion that
-   does not reduce under [vm_compute]. Both represent the same
-   complete game tree — [ttt_is_finite] proves the cotree stabilises
-   at depth 10. *)
+    The maximizer [x] can guarantee at least a draw, and the minimizer [o] can
+    guarantee at most a draw. Combined with [eval_ab_correct], this proves the
+    AI is unbeatable: it computes exact minimax via alpha-beta on the complete
+    game tree, so it always plays optimally and never loses.
+
+    We evaluate on [complete_tree_again], the cotree-based construction, because
+    [complete_tree] uses well-founded [Acc] recursion that does not reduce under
+    [vm_compute]. Both represent the same complete game tree; [ttt_is_finite]
+    proves the cotree stabilises at depth 10. *)
 Theorem ttt_minimax_draw :
   eval_ab players_le_ge score (fun _ => false) complete_tree_again = 1.
 Proof. vm_compute. reflexivity. Qed.
-
-(* Score children on-the-fly using alpha-beta pruning
-   instead of pre-computing the entire scored tree. *)
-
-Definition print_cell (x : cell) : IO unit :=
-  print_string (match x with | None => "." | Some x => "X" | Some o => "O" end).
-
-Definition print_game (g : game) : IO unit :=
-  let '(mkbd a b c d e f g h i) := current_board g in
-  print_cell a ;;
-  print_cell b ;;
-  print_cell c ;;
-  print_newline ;;
-  print_cell d ;;
-  print_cell e ;;
-  print_cell f ;;
-  print_newline ;;
-  print_cell g ;;
-  print_cell h ;;
-  print_cell i ;;
-  print_newline.
-
-Definition exit_failure {A : Type} : IO A :=
-  exit (ExtrOcamlIntConv.int_of_nat 1).
-
-Definition exit_success {A : Type} : IO A :=
-  exit (ExtrOcamlIntConv.int_of_nat 0).
-
-Definition play (t : tree game) : IO (tree game) :=
-  let g := root t in
-  print_game g ;;
-  match get_result g with
-  | won_by x => print_endline "You won the game!" ;; exit_success
-  | won_by o => print_endline "You lost the game!" ;; exit_success
-  | draw => print_endline "It's a draw!" ;; exit_success
-  | ongoing =>
-    print_endline "Enter your move (1-9):" ;;
-    m <- read_line ;;
-    let m' : option move :=
-      match from_ostring m with
-      | "1" => Some move_a | "2" => Some move_b | "3" => Some move_c
-      | "4" => Some move_d | "5" => Some move_e | "6" => Some move_f
-      | "7" => Some move_g | "8" => Some move_h | "9" => Some move_i
-      | _ => None
-      end in
-    match m' with
-    | None =>
-        print_endline "Invalid input, try again." ;; IO.ret t
-    | Some m'' =>
-      let g' := apply_move g m'' in
-      match List.find
-              (fun t' => if dec_eq_game (root t') g' then true else false)
-              (children t) with
-      | None =>
-          print_endline "Invalid move, try again." ;; IO.ret t
-      | Some t' =>
-        (* AI scores each child via alpha-beta pruning, picks the min *)
-        let scored := map (fun c => (c, eval_ab players_le_ge score
-                                          (fun _ => false) c))
-                          (children t') in
-        match max (comparing gt snd) scored with
-        | None => IO.ret t'
-        | Some (t'', _) => IO.ret t''
-        end
-      end
-    end
-  end.
-
-Definition unsafe_main : io_unit :=
-  IO.unsafe_run (IO.loop play complete_tree).
-
-From Stdlib Require Import ExtrOcamlBasic.
-From Stdlib Require Import ExtrOcamlBasic.
-From Stdlib Require Import ExtrOcamlString.
-From Stdlib Require Import ExtrOcamlNatInt.
-
-Module Extraction.
-Extract Inductive sigT => "( * )" [""].
-Extract Inlined Constant negb => "not".
-Extract Inlined Constant fst => "fst".
-Extract Inlined Constant snd => "snd".
-Extract Inlined Constant app => "(@)".
-Extract Inlined Constant concat => "List.concat".
-Extract Inlined Constant map => "List.map".
-Extract Inlined Constant find => "List.find_opt".
-Extract Inlined Constant ltb => "(<)".
-Extraction Inline zip_proofs.
-Extraction Inline unfold_tree_aux.
-Extraction "tictactoe.ml" unsafe_main.
-End Extraction.

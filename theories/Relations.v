@@ -1,6 +1,8 @@
 (* Copyright 2025 Bloomberg Finance L.P. *)
 (* Distributed under the terms of the Apache 2.0 license. *)
 
+(** Relation combinators and reusable well-foundedness instances. *)
+
 Require Import Corelib.Classes.RelationClasses.
 Require Import Corelib.Relations.Relation_Definitions.
 From Stdlib Require Import List.
@@ -9,7 +11,7 @@ Require Import ExtLib.Core.RelDec.
 
 Import ListNotations.
 
-(* Monotonicity predicate on functions. *)
+(** Monotonicity predicate on functions. *)
 Definition monotone
            {A B : Type}
            (R1 : relation A)
@@ -44,13 +46,13 @@ Section Inverse_Image.
 
 End Inverse_Image.
 
-(* Define well-foundedness as a type class on a relation,
+(** Define well-foundedness as a type class on a relation,
    so that we can easily express a function requiring a
    well-founded relation without having to pass the proof explicitly. *)
 Class WellFounded {A : Type} (R : relation A) : Type :=
   wellfounded : forall (x : A), Acc R x.
 
-(* If a relation is well-founded, so is its subrelation. *)
+(** If a relation is well-founded, so is its subrelation. *)
 Theorem WF_subrelation :
   forall
     {A : Type}
@@ -69,7 +71,7 @@ Proof.
   eapply PeanoNat.Nat.lt_wf_0.
 Defined.
 
-(* Pull back the relation [R] along [f]:
+(** Pull back the relation [R] along [f]:
    [x] and [y] in [A] are related iff [f x] and [f y] are related by [R] in [B].
    Useful to compare/order [A] by a key function [f]. *)
 Definition comparing {A B : Type} (R : relation B) (f : A -> B) : relation A :=

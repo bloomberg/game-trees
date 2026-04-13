@@ -1,7 +1,7 @@
 (* Copyright 2026 Bloomberg Finance L.P. *)
 (* Distributed under the terms of the Apache 2.0 license. *)
 
-(* Connect Four with provably unbeatable AI. *)
+(** Connect Four with provably unbeatable AI. *)
 
 Require Import Corelib.Classes.RelationClasses.
 Require Import Corelib.Program.Basics.
@@ -23,7 +23,7 @@ Require Import GameTrees.Cotrees.
 Require Import GameTrees.Eval.
 Require Import GameTrees.AlphaBeta.
 
-(* ---------- Game types ---------- *)
+(** Game types. *)
 
 Inductive player : Type := red | yellow.
 
@@ -42,7 +42,7 @@ Record game : Type :=
   ; next_turn : player
   }.
 
-(* ---------- Decidable equality ---------- *)
+(** Decidable equality. *)
 
 Lemma dec_eq_player : forall (p1 p2 : player), {p1 = p2} + {p1 <> p2}.
 Proof. decide equality. Defined.
@@ -59,7 +59,7 @@ Proof. decide equality; apply dec_eq_list_player. Defined.
 Lemma dec_eq_game : forall (g1 g2 : game), {g1 = g2} + {g1 <> g2}.
 Proof. decide equality. apply dec_eq_player. apply dec_eq_board. Defined.
 
-(* ---------- Board access ---------- *)
+(** Board access. *)
 
 Definition get_column (b : board) (col : nat) : list player :=
   match col with
@@ -70,7 +70,7 @@ Definition get_column (b : board) (col : nat) : list player :=
 Definition get_cell (b : board) (col row : nat) : option player :=
   nth_error (get_column b col) row.
 
-(* ---------- Win detection ---------- *)
+(** Win detection. *)
 
 Definition check_line (b : board) (p : player)
     (c1 r1 c2 r2 c3 r3 c4 r4 : nat) : bool :=
@@ -85,7 +85,7 @@ Definition check_line (b : board) (p : player)
   | _, _, _, _ => false
   end.
 
-(* All 69 possible lines of 4 on a 7x6 board.
+(** All 69 possible lines of 4 on a 7x6 board.
    Each entry: (c1, r1, c2, r2, c3, r3, c4, r4). *)
 Definition all_lines : list (nat * nat * nat * nat * nat * nat * nat * nat) :=
   (* Horizontal: 6 rows x 4 starting columns = 24 *)
@@ -115,11 +115,11 @@ Definition all_lines : list (nat * nat * nat * nat * nat * nat * nat * nat) :=
   (3,3, 4,2, 5,1, 6,0) :: (3,4, 4,3, 5,2, 6,1) :: (3,5, 4,4, 5,3, 6,2) ::
   [].
 
-(* 24 horizontal + 21 vertical + 12 diagonal-up + 12 diagonal-down = 69 *)
+(** 24 horizontal + 21 vertical + 12 diagonal-up + 12 diagonal-down = 69 *)
 Lemma all_lines_length : length all_lines = 69.
 Proof. vm_compute. reflexivity. Qed.
 
-(* No duplicates in the winning lines. *)
+(** No duplicates in the winning lines. *)
 
 Definition line_type := (nat * nat * nat * nat * nat * nat * nat * nat)%type.
 
@@ -151,7 +151,7 @@ Qed.
 Lemma all_lines_NoDup : NoDup all_lines.
 Proof. apply nodup_check_NoDup. vm_compute. reflexivity. Qed.
 
-(* A winning line: 4 in-bounds equally-spaced cells along one of 4 directions
+(** A winning line: 4 in-bounds equally-spaced cells along one of 4 directions
    on a 7-column, 6-row board. *)
 Definition is_winning_line (t : nat * nat * nat * nat * nat * nat * nat * nat)
   : Prop :=
@@ -176,7 +176,7 @@ Definition is_winning_line (t : nat * nat * nat * nat * nat * nat * nat * nat)
    c2 = c1+1 /\ c3 = c1+2 /\ c4 = c1+3 /\
    r1 = r2+1 /\ r2 = r3+1 /\ r3 = r4+1).
 
-(* Systematic enumeration of all winning lines. *)
+(** Systematic enumeration of all winning lines. *)
 Definition generate_lines
   : list (nat * nat * nat * nat * nat * nat * nat * nat) :=
   flat_map (fun r => map (fun c =>
@@ -188,11 +188,11 @@ Definition generate_lines
   flat_map (fun c => map (fun r =>
     (c, r+3, c+1, r+2, c+2, r+1, c+3, r)) (seq 0 3)) (seq 0 4).
 
-(* The systematic enumeration equals the hand-written list. *)
+(** The systematic enumeration equals the hand-written list. *)
 Lemma generate_lines_eq : generate_lines = all_lines.
 Proof. vm_compute. reflexivity. Qed.
 
-(* Every valid winning line appears in [all_lines]. *)
+(** Every valid winning line appears in [all_lines]. *)
 Theorem all_lines_complete :
   forall t, is_winning_line t -> In t all_lines.
 Proof.
@@ -222,7 +222,7 @@ Proof.
     reflexivity.
 Qed.
 
-(* Boolean decision procedure for [is_winning_line]. *)
+(** Boolean decision procedure for [is_winning_line]. *)
 Definition is_winning_line_b (t : line_type) : bool :=
   let '(c1, r1, c2, r2, c3, r3, c4, r4) := t in
   ((c1 + 3 <=? 6) && (r1 <=? 5) &&
@@ -259,7 +259,7 @@ Proof.
   repeat split; lia.
 Qed.
 
-(* Every line in [all_lines] is a valid winning line. *)
+(** Every line in [all_lines] is a valid winning line. *)
 Theorem all_lines_sound :
   forall t, In t all_lines -> is_winning_line t.
 Proof.
@@ -275,7 +275,7 @@ Definition has_won (b : board) (p : player) : bool :=
              check_line b p c1 r1 c2 r2 c3 r3 c4 r4)
           all_lines.
 
-(* ---------- Result ---------- *)
+(** Result. *)
 
 Inductive result : Type :=
 | won_by : player -> result
@@ -299,7 +299,7 @@ Definition get_result (g : game) : result :=
   else if Nat.eqb (total_pieces b) 42 then draw
   else ongoing.
 
-(* ---------- Moves ---------- *)
+(** Moves. *)
 
 Inductive move : Type :=
 | col0 | col1 | col2 | col3 | col4 | col5 | col6.
@@ -365,7 +365,7 @@ Proof.
   - apply IH.
 Qed.
 
-(* Every valid move appears in [moves g]. *)
+(** Every valid move appears in [moves g]. *)
 Lemma moves_complete : forall g m, valid_move g m -> In m (moves g).
 Proof.
   intros g m Hv. inversion Hv; subst.
@@ -375,9 +375,9 @@ Proof.
   - simpl. apply Nat.ltb_lt. exact H0.
 Qed.
 
-(* ---------- Board invariant ---------- *)
+(** Board invariant. *)
 
-(* All columns have at most 6 pieces. *)
+(** All columns have at most 6 pieces. *)
 Definition valid_board (b : board) : Prop :=
   length (c0 b) <= 6 /\ length (c1 b) <= 6 /\ length (c2 b) <= 6 /\
   length (c3 b) <= 6 /\ length (c4 b) <= 6 /\ length (c5 b) <= 6 /\
@@ -400,7 +400,7 @@ Proof.
     repeat split; try (rewrite length_app; simpl; lia); assumption.
 Qed.
 
-(* ---------- Game step ---------- *)
+(** Game step. *)
 
 Inductive game_step : game -> game -> Prop :=
 | gstep : forall g m,
@@ -414,7 +414,7 @@ Definition c4_next (g : game) : list game :=
   | _ => []
   end.
 
-(* ---------- Well-foundedness ---------- *)
+(** Well-foundedness. *)
 
 Definition empty_slots (g : game) : nat :=
   let b := current_board g in
@@ -498,14 +498,14 @@ Definition c4_init : game :=
 Lemma valid_board_init : valid_board (current_board c4_init).
 Proof. unfold valid_board, c4_init; simpl; lia. Qed.
 
-(* The complete game tree. Well-typed and total, but too large to evaluate
+(** The complete game tree. Well-typed and total, but too large to evaluate
    (~4.5 trillion nodes). The fact that this definition type-checks IS the
    finiteness proof: [tree] is inductive, so all inhabitants are finite,
    and [unfold_tree] requires a well-founded relation to terminate. *)
 Definition complete_tree : tree game :=
   unfold_tree (flip game_step) c4_next_intrinsic c4_init.
 
-(* Every game state in [complete_tree] is reachable from [c4_init]
+(** Every game state in [complete_tree] is reachable from [c4_init]
    via valid game steps. (Soundness.) *)
 Theorem complete_tree_sound :
   forall g,
@@ -515,7 +515,7 @@ Proof.
   apply unfold_tree_sound.
 Qed.
 
-(* Every game state reachable from [c4_init] via valid game steps
+(** Every game state reachable from [c4_init] via valid game steps
    appears in [complete_tree]. (Completeness.) *)
 Theorem complete_tree_complete :
   forall g,
@@ -525,7 +525,7 @@ Proof.
   apply unfold_tree_complete.
 Qed.
 
-(* ---------- No simultaneous winners ---------- *)
+(** No simultaneous winners. *)
 
 Definition other_player (p : player) : player :=
   match p with red => yellow | yellow => red end.
@@ -560,7 +560,7 @@ Proof.
   - eapply IH; eassumption.
 Qed.
 
-(* If a cell contains player [q] in the board after a move by someone
+(** If a cell contains player [q] in the board after a move by someone
    other than [q], then it already contained [q] before the move. *)
 Lemma get_cell_apply_move_ne :
   forall g m col row q,
@@ -579,7 +579,7 @@ Proof.
   - exact Hcell.
 Qed.
 
-(* Extracting cell occupancy from a true [check_line]. *)
+(** Extracting cell occupancy from a true [check_line]. *)
 Lemma check_line_get_cell :
   forall b p c1 r1 c2 r2 c3 r3 c4 r4,
     check_line b p c1 r1 c2 r2 c3 r3 c4 r4 = true ->
@@ -601,7 +601,7 @@ Proof.
   auto.
 Qed.
 
-(* Reassembling [check_line] from cell occupancy. *)
+(** Reassembling [check_line] from cell occupancy. *)
 Lemma check_line_from_cells :
   forall b p c1 r1 c2 r2 c3 r3 c4 r4,
     get_cell b c1 r1 = Some p ->
@@ -619,7 +619,7 @@ Proof.
   reflexivity.
 Qed.
 
-(* [has_won b p] is true iff there exists a valid winning line whose
+(** [has_won b p] is true iff there exists a valid winning line whose
    four cells all contain [p]. *)
 Theorem has_won_correct :
   forall b p,
@@ -660,7 +660,7 @@ Proof.
   auto.
 Qed.
 
-(* A move by player [p] cannot create a win for [other_player p]. *)
+(** A move by player [p] cannot create a win for [other_player p]. *)
 Lemma has_won_apply_move_ne :
   forall g m,
     has_won (current_board g) (other_player (next_turn g)) = false ->
@@ -688,7 +688,7 @@ Proof.
   congruence.
 Qed.
 
-(* [c4_next_intrinsic] projects to [c4_next]. *)
+(** [c4_next_intrinsic] projects to [c4_next]. *)
 Lemma c4_step_iff :
   forall g1 g2, step c4_next_intrinsic g1 g2 <-> In g2 (c4_next g1).
 Proof. split; exact (fun H => H). Qed.
@@ -699,7 +699,7 @@ Proof. vm_compute. reflexivity. Qed.
 Lemma has_won_init_yellow : has_won (mkbd [] [] [] [] [] [] []) yellow = false.
 Proof. vm_compute. reflexivity. Qed.
 
-(* On any board reachable from the initial position, it is impossible
+(** On any board reachable from the initial position, it is impossible
    for both players to have four in a row simultaneously. *)
 Lemma no_simul_winners_step :
   forall g1 g2,
@@ -755,7 +755,7 @@ Proof.
   destruct (reachable_no_simul g Hreach); congruence.
 Qed.
 
-(* When empty_slots = 0, all columns have >= 6 pieces,
+(** When empty_slots = 0, all columns have >= 6 pieces,
    so no valid moves exist and c4_next returns []. *)
 Lemma c4_terminates :
   forall g,
@@ -789,7 +789,7 @@ Proof.
   auto.
 Qed.
 
-(* ---------- Depth-limited tree for execution ---------- *)
+(** Depth-limited tree for execution. *)
 
 Definition c4_conext (g : game) : Cotrees.colist game :=
   Cotrees.colist_of_list (c4_next g).
@@ -813,7 +813,7 @@ Proof.
       * constructor. exact (IH ys x Hin').
 Qed.
 
-(* Every node in a finite prefix of a [cotree] is in the [cotree]. *)
+(** Every node in a finite prefix of a [cotree] is in the [cotree]. *)
 Lemma tree_of_cotree_In_cotree :
   forall {A : Type} (n : nat) (ct : Cotrees.cotree A) (a : A),
     In_tree a (Cotrees.tree_of_cotree n ct) ->
@@ -833,7 +833,7 @@ Proof.
     + exact (IH ct' a Hin_t).
 Qed.
 
-(* [costep c4_conext] is equivalent to [step c4_next_intrinsic]. *)
+(** [costep c4_conext] is equivalent to [step c4_next_intrinsic]. *)
 Lemma costep_iff_step :
   forall g1 g2,
     Cotrees.costep c4_conext g1 g2 <-> step c4_next_intrinsic g1 g2.
@@ -843,7 +843,7 @@ Proof.
   reflexivity.
 Qed.
 
-(* Every node in the depth-limited search tree is [coreachable]
+(** Every node in the depth-limited search tree is [coreachable]
    from the root in the coinductive game tree. *)
 Theorem ai_subtree_coreachable :
   forall g g',
@@ -855,7 +855,7 @@ Proof.
   apply tree_of_cotree_In_cotree in Hin. exact Hin.
 Qed.
 
-(* Every node in the depth-limited search tree is reachable
+(** Every node in the depth-limited search tree is reachable
    from the root via valid game steps. *)
 Theorem ai_subtree_reachable :
   forall g g',
@@ -872,7 +872,7 @@ Proof.
   - eapply rt_trans; eauto.
 Qed.
 
-(* ---------- Scoring ---------- *)
+(** Scoring. *)
 
 Definition score (g : game) : nat :=
   match get_result g with
@@ -882,7 +882,7 @@ Definition score (g : game) : nat :=
   | ongoing => 1
   end.
 
-(* ---------- Bitboard solver (inlined from MemoSolver.v) ---------- *)
+(** Bitboard solver (inlined from MemoSolver.v). *)
 
 Fixpoint encode_column (col : list player) (who : player)
     (base : int) (cur mask : int) : int * int :=
@@ -986,7 +986,7 @@ Fixpoint solve_inner (fuel : nat) (depth : int) (g : game)
 Definition solve (g : game) : int :=
   fst (solve_inner 42 0%uint63 g 0%uint63 85%uint63 memo_init).
 
-(* ---------- Solver-backed perfect AI ---------- *)
+(** Solver-backed perfect AI. *)
 
 Definition score_move (g : game) (m : move) : option (move * int) :=
   if Nat.ltb (length (column_of_move m (current_board g))) 6 then
@@ -1018,11 +1018,11 @@ Definition perfect_ai_move (g : game) : option game :=
     Some (apply_move g final_m)
   end.
 
-(* ---------- Correctness of alpha-beta for Connect Four ---------- *)
+(** Correctness of alpha-beta for Connect Four. *)
 
 Require Import ExtLib.Core.RelDec.
 
-(* Alpha-beta pruning computes the same minimax value as the
+(** Alpha-beta pruning computes the same minimax value as the
    unpruned reference evaluator on any Connect Four subtree. *)
 Theorem c4_eval_ab_correct :
   forall (t : tree game),
@@ -1035,9 +1035,9 @@ Proof.
   - exact players_le_ge_adversarial.
 Qed.
 
-(* ---------- Lazy alpha-beta on cotrees ---------- *)
+(** Lazy alpha-beta on cotrees. *)
 
-(* Alpha-beta evaluation directly on cotrees. Unlike [eval_ab] which
+(** Alpha-beta evaluation directly on cotrees. Unlike [eval_ab] which
    requires a fully materialized [tree], this version unfolds the
    [cotree] lazily as branches are visited. In [vm_compute], cofixpoints
    are only reduced on pattern match, so pruned branches are never
@@ -1084,7 +1084,7 @@ Fixpoint eval_ab_co
     end
   end.
 
-(* Materialization of a cotree matching [eval_ab_co]'s traversal pattern:
+(** Materialization of a cotree matching [eval_ab_co]'s traversal pattern:
    the first child is always included, and up to [width] siblings follow.
    Unlike [tree_of_cotree] which ties depth and width to a single fuel
    parameter, this keeps them independent. *)
@@ -1159,7 +1159,7 @@ Proof.
       apply Hgo.
 Qed.
 
-(* Alpha-beta on cotrees computes the same minimax value as the
+(** Alpha-beta on cotrees computes the same minimax value as the
    reference evaluator on the materialized tree. *)
 Corollary eval_ab_co_minimax :
   forall (depth width : nat) (ct : cotree game),
@@ -1173,7 +1173,7 @@ Proof.
   - exact players_le_ge_adversarial.
 Qed.
 
-(* ---------- AI ---------- *)
+(** AI. *)
 
 Definition ai_move (g : game) : option game :=
   let t := ai_subtree g in
@@ -1185,9 +1185,9 @@ Definition ai_move (g : game) : option game :=
   | Some (t', _) => Some (Trees.root t')
   end.
 
-(* ---------- Threat-based reasoning ---------- *)
+(** Threat-based reasoning. *)
 
-(* A threat is a winning line where one player has 3 pieces
+(** A threat is a winning line where one player has 3 pieces
    and the 4th cell is empty but accessible (the row below
    is occupied or it is row 0). *)
 
@@ -1483,7 +1483,7 @@ Proof.
     destruct (next_turn g); simpl; auto.
 Qed.
 
-(* ---------- Certificate-based winning strategy ---------- *)
+(** Certificate-based winning strategy. *)
 
 Inductive cert_node : Type :=
 | cert_terminal : result -> cert_node
@@ -1608,7 +1608,7 @@ Proof.
     exact (IH (mv, sub) Hin _ Hsub).
 Qed.
 
-(* ---------- Packed certificate checker (PArray-based) ---------- *)
+(** Packed certificate checker (PArray-based). *)
 
 From Stdlib Require Import PArray ZArith.
 Open Scope uint63_scope.
@@ -1623,7 +1623,7 @@ Definition int_to_move (n : int) : move :=
   else if (n =? 5)%uint63 then col5
   else col6.
 
-(* Decode cert_node from packed PArray representation.
+(** Decode cert_node from packed PArray representation.
    This is used only in the soundness proof, not in computation. *)
 Fixpoint decode (data : array int) (idx : int) (fuel : nat) : cert_node :=
   match fuel with
@@ -1664,7 +1664,7 @@ Definition decode_responses (data : array int) (off : int) (n : nat) (fuel : nat
 (* check_packed traverses the certificate DAG stored in a PArray.
    It mirrors check_cert but operates on packed data with transposition sharing. *)
 
-(* find_response scans n entries starting at off, looking for move m *)
+(** find_response scans n entries starting at off, looking for move m *)
 Definition find_response
   (chk : game -> int -> bool)
   (g : game) (data : array int) (m : move)
@@ -1678,7 +1678,7 @@ Definition find_response
         else go i' (off + 2)%uint63
     end) n offset.
 
-(* check_yellow iterates over remaining moves, checking each has a response *)
+(** check_yellow iterates over remaining moves, checking each has a response *)
 Definition check_yellow
   (chk : game -> int -> bool)
   (g : game) (data : array int)
@@ -1717,7 +1717,7 @@ Fixpoint check_packed
 (* Soundness: check_packed = true implies check_cert (decode ...) = true.
    Then check_cert_sound gives red_wins. *)
 
-(* Unfolding lemmas for clean proofs *)
+(** Unfolding lemmas for clean proofs *)
 Lemma find_response_S : forall chk g data m n offset,
   find_response chk g data m (S n) offset =
   if move_eqb m (int_to_move (data.[offset])) then
@@ -1743,7 +1743,7 @@ Lemma existsb_cons : forall {A} (f : A -> bool) x xs,
   existsb f (x :: xs) = (f x || existsb f xs)%bool.
 Proof. reflexivity. Qed.
 
-(* Helper: find_response succeeding implies existsb on decode_responses *)
+(** Helper: find_response succeeding implies existsb on decode_responses *)
 Lemma find_response_correct :
   forall fuel' g data m n offset,
   (forall g' idx', check_packed g' data idx' fuel' = true ->
@@ -1775,7 +1775,7 @@ Lemma check_yellow_nil : forall chk g data n offset,
   check_yellow chk g data n offset [] = true.
 Proof. reflexivity. Qed.
 
-(* Helper: check_yellow succeeding implies forallb over decode_responses *)
+(** Helper: check_yellow succeeding implies forallb over decode_responses *)
 Lemma check_yellow_correct :
   forall fuel' g data n offset mvs,
   (forall g' idx', check_packed g' data idx' fuel' = true ->
@@ -1832,7 +1832,7 @@ Proof.
   exact (check_cert_sound _ _ (check_packed_implies_check_cert _ _ _ _ H)).
 Qed.
 
-(* ---------- Certificate tests ---------- *)
+(** Certificate tests. *)
 
 Definition test_board : board :=
   mkbd [] [] [] [red; red; red] [] [] [].
@@ -1875,7 +1875,7 @@ Proof. exact (check_cert_sound _ _ test2_check). Qed.
 
 Close Scope uint63_scope.
 
-(* ---------- Monolith Symmetry ---------- *)
+(** Monolith Symmetry. *)
 
 (* Copyright 2026 Bloomberg Finance L.P. *)
 (* Distributed under the terms of the Apache 2.0 license. *)
@@ -2408,7 +2408,7 @@ Proof.
   exact Hm.
 Qed.
 
-(* ---------- Monolith Unbeatable ---------- *)
+(** Monolith Unbeatable. *)
 
 (* Copyright 2026 Bloomberg Finance L.P. *)
 (* Distributed under the terms of the Apache 2.0 license. *)
@@ -18725,7 +18725,7 @@ Proof.
     + exact Hbad.
 Qed.
 
-(* If the 42-ply root value is non-losing (>= draw), then this policy
+(** If the 42-ply root value is non-losing (>= draw), then this policy
    cannot end in a yellow win in any prefix of a guided play. *)
 Theorem red_policy_unbeatable_if_root_nonloss :
   value_fuel 42 c4_init >= 1 ->
@@ -18736,106 +18736,3 @@ Proof.
   intros Hroot h Hpath.
   eapply guided_path_upto_no_yellow_loss; eauto.
 Qed.
-
-(* ---------- IO ---------- *)
-
-From Stdlib Require Import String.
-#[local] Open Scope string_scope.
-
-Require Import SimpleIO.SimpleIO.
-Import IO.Notations.
-
-Definition print_cell (c : option player) : IO unit :=
-  print_string (match c with
-                | None => ". "
-                | Some red => "R "
-                | Some yellow => "Y "
-                end).
-
-Definition print_row (b : board) (r : nat) : IO unit :=
-  print_cell (get_cell b 0 r) ;;
-  print_cell (get_cell b 1 r) ;;
-  print_cell (get_cell b 2 r) ;;
-  print_cell (get_cell b 3 r) ;;
-  print_cell (get_cell b 4 r) ;;
-  print_cell (get_cell b 5 r) ;;
-  print_cell (get_cell b 6 r) ;;
-  print_newline.
-
-Definition print_board (b : board) : IO unit :=
-  print_row b 5 ;;
-  print_row b 4 ;;
-  print_row b 3 ;;
-  print_row b 2 ;;
-  print_row b 1 ;;
-  print_row b 0 ;;
-  print_endline "1 2 3 4 5 6 7".
-
-Definition exit_failure {A : Type} : IO A :=
-  exit (ExtrOcamlIntConv.int_of_nat 1).
-
-Definition exit_success {A : Type} : IO A :=
-  exit (ExtrOcamlIntConv.int_of_nat 0).
-
-Definition play (g : game) : IO game :=
-  print_board (current_board g) ;;
-  match get_result g with
-  | won_by red => print_endline "Red wins!" ;; exit_success
-  | won_by yellow => print_endline "Yellow wins!" ;; exit_success
-  | draw => print_endline "It's a draw!" ;; exit_success
-  | ongoing =>
-    print_endline "Enter column (1-7):" ;;
-    m <- read_line ;;
-    let m' : option move :=
-      match from_ostring m with
-      | "1" => Some col0 | "2" => Some col1 | "3" => Some col2
-      | "4" => Some col3 | "5" => Some col4 | "6" => Some col5
-      | "7" => Some col6 | _ => None
-      end in
-    match m' with
-    | None =>
-        print_endline "Invalid input, try again." ;; IO.ret g
-    | Some mv =>
-      if Nat.ltb (List.length (column_of_move mv (current_board g))) 6 then
-        let g' := apply_move g mv in
-        match get_result g' with
-        | ongoing =>
-          match ai_move g' with
-          | Some g'' => IO.ret g''
-          | None => IO.ret g'
-          end
-        | _ => IO.ret g'
-        end
-      else
-        print_endline "Column full, try again." ;; IO.ret g
-    end
-  end.
-
-Definition unsafe_main : io_unit :=
-  IO.unsafe_run (IO.loop play c4_init).
-
-(* ---------- Extraction ---------- *)
-
-From Stdlib Require Import ExtrOcamlBasic.
-From Stdlib Require Import ExtrOcamlString.
-From Stdlib Require Import ExtrOcamlNatInt.
-From Stdlib Require Import ExtrOCamlInt63.
-From Stdlib Require Import ExtrOCamlPArray.
-
-Module Extraction.
-Extract Inductive sigT => "( * )" [""].
-Extract Inlined Constant negb => "not".
-Extract Inlined Constant fst => "fst".
-Extract Inlined Constant snd => "snd".
-Extract Inlined Constant app => "(@)".
-Extract Inlined Constant concat => "List.concat".
-Extract Inlined Constant map => "List.map".
-Extract Inlined Constant filter => "List.filter".
-Extract Inlined Constant find => "List.find_opt".
-Extract Inlined Constant existsb => "List.exists".
-Extract Inlined Constant ltb => "(<)".
-Extraction Inline zip_proofs.
-Extraction Inline unfold_tree_aux.
-Extraction Inline memo.
-Extraction "connectfour.ml" unsafe_main.
-End Extraction.

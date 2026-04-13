@@ -1,7 +1,7 @@
 (* Copyright 2026 Bloomberg Finance L.P. *)
 (* Distributed under the terms of the Apache 2.0 license. *)
 
-(* Reversi (Othello) with depth-limited alpha-beta AI. *)
+(** Reversi (Othello) with depth-limited alpha-beta AI. *)
 
 Require Import Corelib.Classes.RelationClasses.
 Require Import Corelib.Program.Basics.
@@ -21,13 +21,13 @@ Require Import GameTrees.Cotrees.
 Require Import GameTrees.Eval.
 Require Import GameTrees.AlphaBeta.
 
-(* ---------- Game types ---------- *)
+(** Game types. *)
 
 Inductive player : Type := black | white.
 
 Definition cell : Type := option player.
 
-(* 8x8 board stored as a list of 64 cells, row-major.
+(** 8x8 board stored as a list of 64 cells, row-major.
    Index = row * 8 + col, where row and col are 0-based. *)
 Definition board : Type := list cell.
 
@@ -37,7 +37,7 @@ Record game : Type :=
   ; pass_count : nat  (* consecutive passes; 2 = game over *)
   }.
 
-(* ---------- Decidable equality ---------- *)
+(** Decidable equality. *)
 
 Lemma dec_eq_player : forall (p1 p2 : player), {p1 = p2} + {p1 <> p2}.
 Proof. decide equality. Defined.
@@ -56,7 +56,11 @@ Proof.
   - apply dec_eq_board.
 Defined.
 
-(* ---------- Board access ---------- *)
+(** Boolean equality for players, derived from the decidable equality proof. *)
+Definition player_eqb (p1 p2 : player) : bool :=
+  if dec_eq_player p1 p2 then true else false.
+
+(** Board access. *)
 
 Definition other_player (p : player) : player :=
   match p with black => white | white => black end.
@@ -70,6 +74,24 @@ Proof. destruct p; reflexivity. Qed.
 Definition get_cell (b : board) (pos : nat) : cell :=
   nth pos b None.
 
+(** Boolean test for empty cells, used by executable clients that do not want
+    to pattern match on the [option] representation directly. *)
+Definition cell_is_empty (c : cell) : bool :=
+  match c with
+  | None => true
+  | Some _ => false
+  end.
+
+(** Return the occupant of a non-empty cell.
+
+    Empty cells are mapped to [black] as a harmless default for extraction
+    clients that call this only after [cell_is_empty] has returned [false]. *)
+Definition cell_player (c : cell) : player :=
+  match c with
+  | None => black
+  | Some p => p
+  end.
+
 Fixpoint set_cell (b : board) (pos : nat) (c : cell) : board :=
   match b, pos with
   | [], _ => []
@@ -82,15 +104,13 @@ Definition pos_of (row col : nat) : nat := row * 8 + col.
 Definition in_bounds (row col : nat) : bool :=
   (row <? 8) && (col <? 8).
 
-(* The standard Reversi starting position: center 2x2 with alternating colors.
-   Black at (3,4),(4,3); white at (3,3),(4,4). *)
+(** The standard Reversi starting position: center 2x2 with alternating colors.
+    Black at (3,4),(4,3); white at (3,3),(4,4). *)
 Definition init_board : board :=
-  let e := @None player in
-  let rows_0_2 := repeat e 24 in
-  let row_3 := repeat e 3 ++ [Some white; Some black] ++ repeat e 3 in
-  let row_4 := repeat e 3 ++ [Some black; Some white] ++ repeat e 3 in
-  let rows_5_7 := repeat e 24 in
-  rows_0_2 ++ row_3 ++ row_4 ++ rows_5_7.
+  repeat (@None player) 24 ++
+  repeat (@None player) 3 ++ [Some white; Some black] ++ repeat (@None player) 3 ++
+  repeat (@None player) 3 ++ [Some black; Some white] ++ repeat (@None player) 3 ++
+  repeat (@None player) 24.
 
 Lemma init_board_length : length init_board = 64.
 Proof. vm_compute. reflexivity. Qed.
@@ -101,7 +121,7 @@ Definition reversi_init : game :=
    ; pass_count := 0
    |}.
 
-(* ---------- Directions and flipping ---------- *)
+(** Directions and flipping. *)
 
 (* 8 directions as (drow, dcol) pairs, represented as integers via Z. *)
 From Stdlib Require Import ZArith.
@@ -114,7 +134,7 @@ Definition all_directions : list direction :=
    ( 0,-1);         ( 0,1);
    ( 1,-1); ( 1,0); ( 1,1)].
 
-(* Walk along a direction from (row, col), collecting positions of
+(** Walk along a direction from (row, col), collecting positions of
    opponent pieces until we hit a piece of our own color.
    Returns the list of opponent positions to flip, or [] if no capture. *)
 Fixpoint scan_direction (b : board) (p : player)
@@ -135,7 +155,7 @@ Fixpoint scan_direction (b : board) (p : player)
     else []  (* out of bounds *)
   end.
 
-(* Scan and return captured positions only if the line terminates
+(** Scan and return captured positions only if the line terminates
    at one of our own pieces. *)
 Fixpoint captures_in_direction (b : board) (p : player)
     (row col : Z) (dr dc : Z) (fuel : nat) : list nat :=
@@ -161,7 +181,7 @@ Fixpoint captures_in_direction (b : board) (p : player)
 
 Close Scope Z_scope.
 
-(* Actually, let me use a simpler two-pass approach: first find the positions
+(** Actually, let me use a simpler two-pass approach: first find the positions
    to flip, then flip them. The captures function walks until it finds
    a friendly piece, returning all opponent positions in between, or []
    if no friendly bookend is found.
@@ -195,7 +215,7 @@ Definition flips_in_direction (b : board) (p : player)
 Definition all_flips (b : board) (p : player) (row col : nat) : list nat :=
   concat (map (flips_in_direction b p row col) all_directions).
 
-(* A move at (row, col) is valid if it flips at least one opponent piece. *)
+(** A move at (row, col) is valid if it flips at least one opponent piece. *)
 Definition is_valid_move (b : board) (p : player) (row col : nat) : bool :=
   in_bounds row col &&
   match get_cell b (pos_of row col) with
@@ -203,20 +223,20 @@ Definition is_valid_move (b : board) (p : player) (row col : nat) : bool :=
   | Some _ => false
   end.
 
-(* Apply a list of flips to the board. *)
+(** Apply a list of flips to the board. *)
 Definition apply_flips (b : board) (p : player) (flips : list nat) : board :=
   fold_left (fun b' pos => set_cell b' pos (Some p)) flips b.
 
-(* Place a piece and flip captured opponents. *)
+(** Place a piece and flip captured opponents. *)
 Definition place_piece (b : board) (p : player) (row col : nat) : board :=
   let pos := pos_of row col in
   let b' := set_cell b pos (Some p) in
   let flips := all_flips b p row col in
   apply_flips b' p flips.
 
-(* ---------- Moves and result ---------- *)
+(** Moves and result. *)
 
-(* A move is a position (row, col) encoded as a single nat = row * 8 + col.
+(** A move is a position (row, col) encoded as a single nat = row * 8 + col.
    We enumerate all 64 positions and filter for validity. *)
 Definition all_positions : list (nat * nat) :=
   concat (map (fun r => map (fun c => (r, c)) (seq 0 8)) (seq 0 8)).
@@ -257,7 +277,28 @@ Definition get_result (g : game) : result :=
     else draw
   else ongoing.
 
-(* A move is either placing at (row, col) or passing. *)
+(** Numeric encoding of [get_result] for simple extracted UI code:
+    [0] means ongoing, [1] means black won, [2] means white won, and [3] means
+    draw. *)
+Definition result_code (g : game) : nat :=
+  match get_result g with
+  | ongoing => 0
+  | won_by black => 1
+  | won_by white => 2
+  | draw => 3
+  end.
+
+(** Projection wrapper for extracted clients that should not depend on the
+    concrete field name of [game]. *)
+Definition board_of (g : game) : board := current_board g.
+
+(** Projection wrapper returning the player whose turn it is. *)
+Definition turn_of (g : game) : player := next_turn g.
+
+(** Boolean test for whether a player is [black]. *)
+Definition player_is_black (p : player) : bool := player_eqb p black.
+
+(** A move is either placing at (row, col) or passing. *)
 Inductive move : Type :=
 | place : nat -> nat -> move  (* row, col *)
 | pass : move.
@@ -325,7 +366,7 @@ Proof.
     intros [r c] Hv. apply valid_place; auto.
 Qed.
 
-(* ---------- Game step ---------- *)
+(** Game step. *)
 
 Inductive game_step : game -> game -> Prop :=
 | gstep : forall g m,
@@ -340,9 +381,9 @@ Definition reversi_next (g : game) : list game :=
   | _ => []
   end.
 
-(* ---------- Well-foundedness ---------- *)
+(** Well-foundedness. *)
 
-(* Termination measure: empty cells decrease on placements, and
+(** Termination measure: empty cells decrease on placements, and
    pass_count increases (bounded by 2) on passes. We combine them
    into a single lexicographic measure: (empty_count, 2 - pass_count). *)
 Definition measure (g : game) : nat :=
@@ -357,7 +398,7 @@ Proof.
   apply Relations.wf_inverse_image, Nat.lt_wf_0.
 Defined.
 
-(* ---------- set_cell and empty_count properties ---------- *)
+(** set_cell and empty_count properties. *)
 
 Lemma set_cell_length :
   forall b pos c, pos < length b -> length (set_cell b pos c) = length b.
@@ -386,7 +427,7 @@ Proof.
     auto; try lia; apply IH; lia.
 Qed.
 
-(* empty_count with set_cell at an empty position: S version for clean nat arithmetic. *)
+(** empty_count with set_cell at an empty position: S version for clean nat arithmetic. *)
 Lemma set_cell_empty_decreases :
   forall b pos c,
     pos < length b ->
@@ -402,7 +443,7 @@ Proof.
     + simpl in *. destruct x; simpl; rewrite (IH pos' c); auto; lia.
 Qed.
 
-(* empty_count with set_cell at an occupied position. *)
+(** empty_count with set_cell at an occupied position. *)
 Lemma set_cell_occupied_preserves :
   forall b pos c q,
     pos < length b ->
@@ -418,7 +459,7 @@ Proof.
     + simpl in *. destruct x; simpl; rewrite (IH pos' c q); auto; lia.
 Qed.
 
-(* apply_flips where all flipped positions are occupied preserves empty_count. *)
+(** apply_flips where all flipped positions are occupied preserves empty_count. *)
 Lemma apply_flips_preserves_empty :
   forall flips b p,
     (forall pos, In pos flips -> pos < length b) ->
@@ -441,7 +482,7 @@ Proof.
       * rewrite get_cell_set_cell_other; [apply Hocc; right; exact Hin | auto].
 Qed.
 
-(* Positions returned by find_flips are occupied by the opponent. *)
+(** Positions returned by find_flips are occupied by the opponent. *)
 Lemma find_flips_occupied :
   forall b p row col dr dc acc fuel pos,
     In pos (find_flips b p row col dr dc acc fuel) ->
@@ -468,7 +509,7 @@ Proof.
     + contradiction.
 Qed.
 
-(* Positions in all_flips are occupied on the board. *)
+(** Positions in all_flips are occupied on the board. *)
 Lemma all_flips_occupied :
   forall b p row col pos,
     In pos (all_flips b p row col) ->
@@ -484,7 +525,7 @@ Proof.
   destruct Hin_pos as [[] | H]. exact H.
 Qed.
 
-(* Positions in find_flips (starting from acc=[]) are in bounds. *)
+(** Positions in find_flips (starting from acc=[]) are in bounds. *)
 Lemma find_flips_in_bounds :
   forall b p row col dr dc acc fuel pos,
     In pos (find_flips b p row col dr dc acc fuel) ->
@@ -533,7 +574,7 @@ Proof.
   destruct Hin_pos as [[] | H]. exact H.
 Qed.
 
-(* For placements: show the measure strictly decreases. *)
+(** For placements: show the measure strictly decreases. *)
 Lemma place_decreases_empty :
   forall b p row col,
     length b = 64 ->
@@ -660,7 +701,7 @@ Proof.
   - exists []. constructor.
 Defined.
 
-(* The complete game tree. The fact that this definition type-checks IS
+(** The complete game tree. The fact that this definition type-checks IS
    the finiteness proof: [tree] is inductive and [unfold_tree] requires
    a well-founded relation. *)
 Definition complete_tree : tree game :=
@@ -682,7 +723,7 @@ Proof.
   apply unfold_tree_complete.
 Qed.
 
-(* ---------- Decidable equality for result and move ---------- *)
+(** Decidable equality for result and move. *)
 
 Lemma dec_eq_result : forall (r1 r2 : result), {r1 = r2} + {r1 <> r2}.
 Proof. decide equality. apply dec_eq_player. Defined.
@@ -690,7 +731,7 @@ Proof. decide equality. apply dec_eq_player. Defined.
 Lemma dec_eq_move : forall (m1 m2 : move), {m1 = m2} + {m1 <> m2}.
 Proof. decide equality; apply Nat.eq_dec. Defined.
 
-(* ---------- Board invariant preservation ---------- *)
+(** Board invariant preservation. *)
 
 Lemma apply_flips_length :
   forall flips b p,
@@ -740,7 +781,7 @@ Qed.
 Lemma valid_board_init : length (current_board reversi_init) = 64.
 Proof. vm_compute. reflexivity. Qed.
 
-(* ---------- Moves completeness ---------- *)
+(** Moves completeness. *)
 
 Lemma in_all_positions :
   forall row col, row < 8 -> col < 8 -> In (row, col) all_positions.
@@ -784,7 +825,7 @@ Proof.
     unfold moves. rewrite H. rewrite H0. left. auto.
 Qed.
 
-(* ---------- Termination conditions ---------- *)
+(** Termination conditions. *)
 
 Lemma full_board_no_moves :
   forall g, empty_count (current_board g) = 0 -> moves g = [].
@@ -814,9 +855,9 @@ Proof.
     end; discriminate.
 Qed.
 
-(* ---------- Result exclusivity ---------- *)
+(** Result exclusivity. *)
 
-(* The result function cannot simultaneously declare both players winners. *)
+(** The result function cannot simultaneously declare both players winners. *)
 Theorem at_most_one_winner :
   forall g,
     ~ (get_result g = won_by black /\ get_result g = won_by white).
@@ -824,7 +865,7 @@ Proof.
   intros g [H1 H2]. rewrite H1 in H2. discriminate.
 Qed.
 
-(* Stronger: get_result is deterministic — it returns a unique result. *)
+(** Stronger: get_result is deterministic — it returns a unique result. *)
 Theorem result_deterministic :
   forall g r1 r2,
     get_result g = r1 -> get_result g = r2 -> r1 = r2.
@@ -832,9 +873,9 @@ Proof.
   intros g r1 r2 H1 H2. congruence.
 Qed.
 
-(* ---------- Scoring ---------- *)
+(** Scoring. *)
 
-(* Black is the maximizer (score 2), white is the minimizer (score 0). *)
+(** Black is the maximizer (score 2), white is the minimizer (score 0). *)
 Definition score (g : game) : nat :=
   match get_result g with
   | won_by black => 2
@@ -843,7 +884,44 @@ Definition score (g : game) : nat :=
   | ongoing => 1
   end.
 
-(* ---------- Correctness of alpha-beta for Reversi ---------- *)
+(** The four high-value corner positions on an 8x8 Reversi board. *)
+Definition corner_positions : list (nat * nat) :=
+  [(0,0); (0,7); (7,0); (7,7)].
+
+(** Count how many corners are occupied by the given player. *)
+Definition count_corners (b : board) (p : player) : nat :=
+  length (filter (fun '(r, c) =>
+    match get_cell b (pos_of r c) with
+    | Some q => player_eqb q p
+    | None => false
+    end) corner_positions).
+
+(** Clamp a signed heuristic score to the natural interval used by alpha-beta. *)
+Definition clamp_score (z : Z) : nat :=
+  Z.to_nat (Z.max 0 (Z.min 1000 z)).
+
+(** Evaluation function for practical AI play.
+
+    Terminal positions receive exact win/loss/draw values. Ongoing positions
+    combine material, mobility, and corner ownership into a bounded score where
+    larger values favor black and smaller values favor white. *)
+Definition heuristic_score (g : game) : nat :=
+  match get_result g with
+  | won_by black => 1000
+  | won_by white => 0
+  | draw => 500
+  | ongoing =>
+    let b := current_board g in
+    let nb := Z.of_nat (count_pieces b black) in
+    let nw := Z.of_nat (count_pieces b white) in
+    let mb := Z.of_nat (length (valid_positions b black)) in
+    let mw := Z.of_nat (length (valid_positions b white)) in
+    let cb := Z.of_nat (count_corners b black) in
+    let cw := Z.of_nat (count_corners b white) in
+    clamp_score (500 + (nb - nw) * 4 + (mb - mw) * 10 + (cb - cw) * 80)
+  end.
+
+(** Correctness of alpha-beta for Reversi. *)
 
 Require Import ExtLib.Core.RelDec.
 
@@ -858,7 +936,7 @@ Proof.
   - exact players_le_ge_adversarial.
 Qed.
 
-(* ---------- Depth-limited tree for execution ---------- *)
+(** Depth-limited tree for execution. *)
 
 Definition reversi_conext (g : game) : Cotrees.colist game :=
   Cotrees.colist_of_list (proj1_sig (reversi_next_intrinsic g)).
@@ -935,133 +1013,26 @@ Proof.
   - eapply rt_trans; eauto.
 Qed.
 
-(* ---------- Lazy alpha-beta on cotrees ---------- *)
+(** Lazy alpha-beta on Reversi cotrees. *)
 
-Fixpoint eval_ab_co
-    {G S : Type}
-    (depth width : nat)
-    (ps : players S)
-    (score : G -> S)
-    (cutoff : S -> bool)
-    (ct : cotree G) : S :=
-  match depth with
-  | O => score (match ct with conode g _ => g end)
-  | S depth' =>
-    match ps with
-    | Streams.Cons (existT _ R D) ps' =>
-      match ct with
-      | conode g f =>
-        match f with
-        | conil => score g
-        | cocons first_child rest =>
-          let first_val := eval_ab_co depth' width ps' score
-                             (fun _ => false) first_child in
-          (fix go (fuel : nat) (best : S)
-               (remaining : colist (cotree G)) : S :=
-            match fuel with
-            | O => best
-            | S fuel' =>
-              match remaining with
-              | conil => best
-              | cocons child rest' =>
-                if cutoff best then best
-                else
-                  let v := eval_ab_co depth' width ps' score
-                             (fun s => @rel_dec _ _ D s best) child in
-                  go fuel' (max2 R best v) rest'
-              end
-            end) width first_val rest
-        end
-      end
-    end
-  end.
+(** Reversi instance of the generic cotree alpha-beta correctness theorem.
 
-Fixpoint materialize {A : Type} (depth width : nat) (ct : cotree A)
-    : tree A :=
-  match depth with
-  | O => match ct with conode a _ => node a [] end
-  | S depth' =>
-    match ct with
-    | conode a f =>
-      node a (match f with
-              | conil => []
-              | cocons first rest =>
-                materialize depth' width first ::
-                map (materialize depth' width)
-                    (Cotrees.list_of_colist width rest)
-              end)
-    end
-  end.
-
-Theorem eval_ab_co_correct :
-  forall {G S : Type} (depth width : nat) (ps : players S)
-         (score : G -> S) (cutoff : S -> bool) (ct : cotree G),
-    eval_ab_co depth width ps score cutoff ct =
-    eval_ab ps score cutoff (materialize depth width ct).
-Proof.
-  induction depth as [|n IH]; intros width ps score cutoff [g f].
-  - destruct ps as [[R D] ps']. reflexivity.
-  - destruct ps as [[R D] ps']. simpl.
-    destruct f as [|first rest].
-    + reflexivity.
-    + rewrite IH.
-      set (init := eval_ab ps' score (fun _ : S => false)
-                     (materialize n width first)).
-      clearbody init.
-      assert (Hgo : forall fuel init0 rest0,
-        (fix go (fuel0 : nat) (best : S)
-             (remaining : colist (cotree G)) : S :=
-          match fuel0 with
-          | O => best
-          | S fuel' =>
-            match remaining with
-            | conil => best
-            | cocons child rest' =>
-              if cutoff best then best
-              else
-                let v := eval_ab_co n width ps' score
-                           (fun s => @rel_dec _ _ D s best) child in
-                go fuel' (max2 R best v) rest'
-            end
-          end) fuel init0 rest0
-        =
-        (fix go (best : S) (remaining : list (tree G)) : S :=
-          match remaining with
-          | [] => best
-          | c' :: remaining' =>
-            if cutoff best then best
-            else
-              let v := eval_ab ps' score
-                         (fun s => @rel_dec _ _ D s best) c' in
-              go (max2 R best v) remaining'
-          end) init0
-          (map (materialize n width) (Cotrees.list_of_colist fuel rest0))).
-      { induction fuel as [|f IHf]; intros init0 rest0.
-        - reflexivity.
-        - destruct rest0 as [|child rest'].
-          + simpl. reflexivity.
-          + simpl.
-            destruct (cutoff init0) eqn:Ecut.
-            * reflexivity.
-            * rewrite IH. apply IHf. }
-      apply Hgo.
-Qed.
-
-Corollary eval_ab_co_minimax :
-  forall (depth width : nat) (ct : cotree game),
-    eval_ab_co depth width players_le_ge score (fun _ => false) ct =
-    eval_val players_le_ge score (materialize depth width ct).
+    This specializes [eval_ab_co_minimax] to Reversi games and the alternating
+    [players_le_ge] stream, while leaving the scoring function abstract. *)
+Corollary reversi_eval_ab_co_minimax :
+  forall (score' : game -> nat) (depth width : nat) (ct : cotree game),
+    eval_ab_co depth width players_le_ge score' (fun _ => false) ct =
+    eval_val players_le_ge score' (materialize depth width ct).
 Proof.
   intros.
-  rewrite eval_ab_co_correct.
-  apply eval_ab_correct.
+  apply eval_ab_co_minimax.
   - exact players_le_ge_strong.
   - exact players_le_ge_adversarial.
 Qed.
 
-(* ---------- Board symmetry ---------- *)
+(** Board symmetry. *)
 
-(* Reflect board horizontally: column c -> column 7-c.
+(** Reflect board horizontally: column c -> column 7-c.
    For row-major indexing, position row*8+col -> row*8+(7-col). *)
 Definition reflect_pos (pos : nat) : nat :=
   let row := pos / 8 in
@@ -1106,7 +1077,7 @@ Proof.
   lia.
 Qed.
 
-(* Rotate board 90 degrees clockwise: (row, col) -> (col, 7-row). *)
+(** Rotate board 90 degrees clockwise: (row, col) -> (col, 7-row). *)
 Definition rotate_pos (pos : nat) : nat :=
   let row := pos / 8 in
   let col := pos mod 8 in
@@ -1142,13 +1113,13 @@ Proof.
   lia.
 Qed.
 
-(* ---------- Stable discs ---------- *)
+(** Stable discs. *)
 
-(* A corner position is one of (0,0), (0,7), (7,0), (7,7). *)
+(** A corner position is one of (0,0), (0,7), (7,0), (7,7). *)
 Definition is_corner (row col : nat) : bool :=
   ((row =? 0) || (row =? 7)) && ((col =? 0) || (col =? 7)).
 
-(* An edge position is on the border of the board. *)
+(** An edge position is on the border of the board. *)
 Definition is_edge (row col : nat) : bool :=
   (row =? 0) || (row =? 7) || (col =? 0) || (col =? 7).
 
@@ -1156,11 +1127,11 @@ Definition is_edge (row col : nat) : bool :=
    We define stability inductively: corners are always stable, and a disc
    adjacent to stable discs in all flip-vulnerable directions is stable. *)
 
-(* For certificate purposes, we represent a stable set as a list of positions
+(** For certificate purposes, we represent a stable set as a list of positions
    known to be stable, and verify it against the board. *)
 Definition stable_set := list nat.
 
-(* Check that every position in the stable set is occupied by player p. *)
+(** Check that every position in the stable set is occupied by player p. *)
 Definition stable_set_owned (b : board) (p : player) (ss : stable_set) : bool :=
   forallb (fun pos =>
     match get_cell b pos with
@@ -1168,18 +1139,18 @@ Definition stable_set_owned (b : board) (p : player) (ss : stable_set) : bool :=
     | None => false
     end) ss.
 
-(* Count pieces owned by player p. *)
+(** Count pieces owned by player p. *)
 Definition piece_count (b : board) (p : player) : nat :=
   count_pieces b p.
 
-(* A player with more than 32 stable discs has won — the opponent cannot
+(** A player with more than 32 stable discs has won — the opponent cannot
    possibly have a majority since there are only 64 cells. *)
 Definition stable_majority (b : board) (p : player) (ss : stable_set) : bool :=
   stable_set_owned b p ss && (32 <? length ss).
 
-(* ---------- Certificate type ---------- *)
+(** Certificate type. *)
 
-(* A certificate is a compact witness that a game position has a particular
+(** A certificate is a compact witness that a game position has a particular
    game-theoretic value. It mirrors the game tree but uses structural
    lemmas to skip subtrees where the outcome is determined. *)
 Inductive cert_node : Type :=
@@ -1200,14 +1171,14 @@ Inductive cert_node : Type :=
 | cert_reflect : cert_node -> cert_node
 | cert_rotate : cert_node -> cert_node.
 
-(* ---------- Certificate checker ---------- *)
+(** Certificate checker. *)
 
-(* The claimed result of a certified position. *)
+(** The claimed result of a certified position. *)
 Inductive cert_result : Type :=
 | cert_win : player -> cert_result
 | cert_draw : cert_result.
 
-(* Check a certificate against a game state. Returns Some r if the
+(** Check a certificate against a game state. Returns Some r if the
    certificate proves that the game-theoretic value is r. *)
 Fixpoint check_cert (g : game) (c : cert_node) (fuel : nat) : option cert_result :=
   match fuel with
@@ -1295,9 +1266,9 @@ Fixpoint check_cert (g : game) (c : cert_node) (fuel : nat) : option cert_result
     end
   end.
 
-(* ---------- Certificate soundness ---------- *)
+(** Certificate soundness. *)
 
-(* If check_cert returns Some r, then r correctly describes the
+(** If check_cert returns Some r, then r correctly describes the
    game-theoretic outcome. This is the key soundness property.
 
    Full proof requires showing:
@@ -1325,7 +1296,7 @@ Proof.
     try discriminate; inversion H; subst; auto.
 Qed.
 
-(* NoDup filter partition: length = length of true-part + length of false-part. *)
+(** NoDup filter partition: length = length of true-part + length of false-part. *)
 Lemma filter_partition_length :
   forall {A : Type} (f : A -> bool) (l : list A),
     length l = length (filter f l) + length (filter (fun x => negb (f x)) l).
@@ -1334,7 +1305,7 @@ Proof.
   destruct (f a); simpl; lia.
 Qed.
 
-(* No element equal to v in a list that doesn't contain v. *)
+(** No element equal to v in a list that doesn't contain v. *)
 Lemma filter_eq_not_in :
   forall (ss : list nat) (v : nat),
     ~ In v ss ->
@@ -1346,7 +1317,7 @@ Proof.
   { apply IH. intro H. apply Hni. right. exact H. }
 Qed.
 
-(* NoDup list has at most one occurrence matching equality. *)
+(** NoDup list has at most one occurrence matching equality. *)
 Lemma nodup_filter_eq_le1 :
   forall (ss : list nat) (v : nat),
     NoDup ss ->
@@ -1360,7 +1331,7 @@ Proof.
   { apply IH. auto. }
 Qed.
 
-(* If 0 is in a NoDup list and get_cell (x::b') 0 = Some p, then x = Some p. *)
+(** If 0 is in a NoDup list and get_cell (x::b') 0 = Some p, then x = Some p. *)
 Lemma filter_zero_in :
   forall (ss : list nat),
     filter (fun i => i =? 0) ss <> [] ->
@@ -1372,7 +1343,7 @@ Proof.
   { right. apply IH. auto. }
 Qed.
 
-(* NoDup indices all pointing to p-owned cells means count_pieces >= length. *)
+(** NoDup indices all pointing to p-owned cells means count_pieces >= length. *)
 Lemma nodup_owned_count :
   forall b p ss,
     NoDup ss ->
@@ -1465,9 +1436,9 @@ Proof.
   lia.
 Qed.
 
-(* ---------- Small board certificate example ---------- *)
+(** Small board certificate example. *)
 
-(* Verify the certificate checker works on a trivial terminal game. *)
+(** Verify the certificate checker works on a trivial terminal game. *)
 Definition terminal_game : game :=
   {| current_board := repeat (Some black) 64
    ; next_turn := black
@@ -1478,7 +1449,7 @@ Lemma terminal_game_cert :
   check_cert terminal_game cert_terminal 1 = Some (cert_win black).
 Proof. vm_compute. reflexivity. Qed.
 
-(* ---------- AI ---------- *)
+(** AI. *)
 
 Definition ai_move (g : game) : option game :=
   let t := ai_subtree g in
@@ -1490,108 +1461,169 @@ Definition ai_move (g : game) : option game :=
   | Some (t', _) => Some (Trees.root t')
   end.
 
-(* ---------- IO ---------- *)
+(** Score a Reversi game by running the generic cotree alpha-beta evaluator on
+    the lazily unfolded Reversi transition system. *)
+Definition co_score_game (depth width : nat) (g : game) : nat :=
+  eval_ab_co depth width players_le_ge heuristic_score (fun _ => false)
+    (Cotrees.unfold_cotree reversi_conext g).
 
-From Stdlib Require Import String.
-#[local] Open Scope string_scope.
+(** [co_score_game] agrees with minimax on the finite prefix inspected by the
+    depth- and width-limited cotree search. *)
+Theorem co_score_game_minimax :
+  forall depth width g,
+    co_score_game depth width g =
+    eval_val players_le_ge heuristic_score
+      (materialize depth width (Cotrees.unfold_cotree reversi_conext g)).
+Proof.
+  intros. unfold co_score_game. apply reversi_eval_ab_co_minimax.
+Qed.
 
-Require Import SimpleIO.SimpleIO.
-Import IO.Notations.
-
-Definition print_cell (c : cell) : IO unit :=
-  print_string (match c with
-                | None => ". "
-                | Some black => "B "
-                | Some white => "W "
-                end).
-
-Definition print_row (b : board) (r : nat) : IO unit :=
-  print_cell (get_cell b (pos_of r 0)) ;;
-  print_cell (get_cell b (pos_of r 1)) ;;
-  print_cell (get_cell b (pos_of r 2)) ;;
-  print_cell (get_cell b (pos_of r 3)) ;;
-  print_cell (get_cell b (pos_of r 4)) ;;
-  print_cell (get_cell b (pos_of r 5)) ;;
-  print_cell (get_cell b (pos_of r 6)) ;;
-  print_cell (get_cell b (pos_of r 7)) ;;
-  print_newline.
-
-Definition print_board (b : board) : IO unit :=
-  print_endline "  0 1 2 3 4 5 6 7" ;;
-  print_string "0 " ;; print_row b 0 ;;
-  print_string "1 " ;; print_row b 1 ;;
-  print_string "2 " ;; print_row b 2 ;;
-  print_string "3 " ;; print_row b 3 ;;
-  print_string "4 " ;; print_row b 4 ;;
-  print_string "5 " ;; print_row b 5 ;;
-  print_string "6 " ;; print_row b 6 ;;
-  print_string "7 " ;; print_row b 7.
-
-Definition exit_failure {A : Type} : IO A :=
-  exit (ExtrOcamlIntConv.int_of_nat 1).
-
-Definition exit_success {A : Type} : IO A :=
-  exit (ExtrOcamlIntConv.int_of_nat 0).
-
-Definition parse_digit (s : string) : option nat :=
-  match s with
-  | "0" => Some 0 | "1" => Some 1 | "2" => Some 2 | "3" => Some 3
-  | "4" => Some 4 | "5" => Some 5 | "6" => Some 6 | "7" => Some 7
-  | _ => None
+(** Compare two candidate scores from the perspective of the player to move.
+    Black maximizes the heuristic score, while white minimizes it. *)
+Definition prefers (p : player) (best cand : nat) : bool :=
+  match p with
+  | black => Nat.leb best cand
+  | white => Nat.leb cand best
   end.
 
-Definition play (g : game) : IO game :=
-  print_board (current_board g) ;;
+(** Apply a concrete placement for the extracted game loop. *)
+Definition executable_place (g : game) (row col : nat) : game :=
+  let b := current_board g in
+  let p := next_turn g in
+  {| current_board := place_piece b p row col
+   ; next_turn := other_player p
+   ; pass_count := 0
+   |}.
+
+(** Apply a pass for the extracted game loop. *)
+Definition executable_pass (g : game) : game :=
+  let b := current_board g in
+  let p := next_turn g in
+  {| current_board := b
+   ; next_turn := other_player p
+   ; pass_count := S (pass_count g)
+   |}.
+
+(** Executable Reversi successors without proof payloads. *)
+Definition executable_reversi_next (g : game) : list game :=
   match get_result g with
-  | won_by black => print_endline "Black wins!" ;; exit_success
-  | won_by white => print_endline "White wins!" ;; exit_success
-  | draw => print_endline "It's a draw!" ;; exit_success
   | ongoing =>
-    print_endline "Enter row (0-7):" ;;
-    r <- read_line ;;
-    print_endline "Enter col (0-7):" ;;
-    c <- read_line ;;
-    match parse_digit (from_ostring r), parse_digit (from_ostring c) with
-    | Some row, Some col =>
-      if is_valid_move (current_board g) (next_turn g) row col then
-        let g' := apply_move g (place row col) in
-        match get_result g' with
-        | ongoing =>
-          match ai_move g' with
-          | Some g'' => IO.ret g''
-          | None => IO.ret g'
-          end
-        | _ => IO.ret g'
-        end
-      else
-        print_endline "Invalid move, try again." ;; IO.ret g
-    | _, _ =>
-        print_endline "Invalid input, try again." ;; IO.ret g
+    match valid_positions (current_board g) (next_turn g) with
+    | [] => [executable_pass g]
+    | ps => map (fun '(r, c) => executable_place g r c) ps
+    end
+  | _ => []
+  end.
+
+(** Extraction-oriented coinductive Reversi game tree.
+
+    The generic [Cotrees.cotree] development remains available for proofs.
+    This compact representation is used only by the extracted game loop; it
+    exposes children by index so the evaluator can unfold lazily without using
+    the generic cotree combinators that currently generate invalid C++. *)
+CoInductive executable_cotree : Type :=
+| executable_conode : game -> (nat -> option game) -> executable_cotree.
+
+(** Lazily expose the executable successors of a Reversi position by index. *)
+Definition executable_unfold_game_tree (g : game) : executable_cotree :=
+  let children := executable_reversi_next g in
+  executable_conode g (fun idx => nth_error children idx).
+
+(** Return the game stored at the root of an executable cotree node. *)
+Definition executable_cotree_root (t : executable_cotree) : game :=
+  match t with
+  | executable_conode g _ => g
+  end.
+
+(** Look up the [idx]th child of an executable cotree node, if it exists. *)
+Definition executable_cotree_child (t : executable_cotree) (idx : nat)
+    : option game :=
+  match t with
+  | executable_conode _ children => children idx
+  end.
+
+(** Reversi-specialized depth-limited alpha-beta evaluator for extraction.
+
+    The generic [AlphaBeta.eval_ab_co] and [co_score_game] remain the
+    specification-oriented coinductive implementation with proofs.  This
+    executable evaluator has the same depth/width-limited search order but
+    recurses on games directly, avoiding a current Crane method-ordering issue
+    for functions extracted as methods of coinductive tree nodes. *)
+Fixpoint executable_eval_game (depth width alpha beta : nat) (g : game) : nat :=
+  match depth with
+  | O => heuristic_score g
+  | S depth' =>
+    match get_result g with
+    | won_by _ | draw => heuristic_score g
+    | ongoing =>
+      let children := executable_reversi_next g in
+      match next_turn g with
+      | black =>
+        let fix eval_max (fuel : nat) (remaining : list game)
+            (alpha0 beta0 : nat) : nat :=
+          match fuel, remaining with
+          | O, _ => alpha0
+          | _, [] => alpha0
+          | S fuel', child :: rest =>
+              let v := executable_eval_game depth' width alpha0 beta0 child in
+              let best := Nat.max alpha0 v in
+              if Nat.leb beta0 best then best
+              else eval_max fuel' rest best beta0
+          end in
+        eval_max width children alpha beta
+      | white =>
+        let fix eval_min (fuel : nat) (remaining : list game)
+            (alpha0 beta0 : nat) : nat :=
+          match fuel, remaining with
+          | O, _ => beta0
+          | _, [] => beta0
+          | S fuel', child :: rest =>
+              let v := executable_eval_game depth' width alpha0 beta0 child in
+              let best := Nat.min beta0 v in
+              if Nat.leb best alpha0 then best
+              else eval_min fuel' rest alpha0 best
+          end in
+        eval_min width children alpha beta
+      end
     end
   end.
 
-Definition unsafe_main : io_unit :=
-  IO.unsafe_run (IO.loop play reversi_init).
+(** Score a game by a depth-limited executable search considering at most
+    [width] children per position. *)
+Definition executable_co_score_game (depth width : nat) (g : game) : nat :=
+  executable_eval_game depth width 0 1000 g.
 
-(* ---------- Extraction ---------- *)
+(** Fold step for choosing a best child using the generic cotree scorer. *)
+Definition choose_step_co (depth width : nat) (p : player)
+    (acc : game * nat) (g : game) : game * nat :=
+  let '(best, best_score) := acc in
+  let s := co_score_game depth width g in
+  if prefers p best_score s
+  then (g, s)
+  else (best, best_score).
 
-From Stdlib Require Import ExtrOcamlBasic.
-From Stdlib Require Import ExtrOcamlString.
-From Stdlib Require Import ExtrOcamlNatInt.
+(** Choose a best child from a non-empty list using [co_score_game]. *)
+Definition choose_best_game_co (depth width : nat) (p : player)
+    (best : game) (best_score : nat) (rest : list game) : game :=
+  fst (fold_left (choose_step_co depth width p) rest (best, best_score)).
 
-Module Extraction.
-Extract Inductive sigT => "( * )" [""].
-Extract Inlined Constant negb => "not".
-Extract Inlined Constant fst => "fst".
-Extract Inlined Constant snd => "snd".
-Extract Inlined Constant app => "(@)".
-Extract Inlined Constant concat => "List.concat".
-Extract Inlined Constant map => "List.map".
-Extract Inlined Constant filter => "List.filter".
-Extract Inlined Constant find => "List.find_opt".
-Extract Inlined Constant existsb => "List.exists".
-Extract Inlined Constant ltb => "(<)".
-Extraction Inline zip_proofs.
-Extraction Inline unfold_tree_aux.
-Extraction "reversi.ml" unsafe_main.
-End Extraction.
+(** Choose the best child using the extraction-oriented scorer. *)
+Fixpoint executable_choose_best_game_co (depth width : nat) (p : player)
+    (best : game) (best_score : nat) (rest : list game) : game :=
+  match rest with
+  | [] => best
+  | g :: rest' =>
+    let s := executable_co_score_game depth width g in
+    if prefers p best_score s
+    then executable_choose_best_game_co depth width p g s rest'
+    else executable_choose_best_game_co depth width p best best_score rest'
+  end.
+
+(** Compute the AI move using the extraction-oriented lazy alpha-beta search. *)
+Definition ai_move_co (depth width : nat) (g : game) : option game :=
+  match executable_reversi_next g with
+  | [] => None
+  | first :: rest =>
+    Some (executable_choose_best_game_co depth width (next_turn g) first
+            (executable_co_score_game depth width first) rest)
+  end.
