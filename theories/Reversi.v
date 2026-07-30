@@ -947,38 +947,6 @@ Definition ai_subtree (g : game) : tree game :=
   Cotrees.tree_of_cotree search_depth
     (Cotrees.unfold_cotree reversi_conext g).
 
-Lemma In_list_of_colist :
-  forall {A : Type} (n : nat) (cl : Cotrees.colist A) (x : A),
-    In x (Cotrees.list_of_colist n cl) -> Cotrees.In_colist x cl.
-Proof.
-  induction n as [|n IH]; intros cl x Hin; simpl in Hin.
-  - contradiction.
-  - destruct cl as [|y ys].
-    + contradiction.
-    + destruct Hin as [Heq | Hin'].
-      * subst. constructor.
-      * constructor. exact (IH ys x Hin').
-Qed.
-
-Lemma tree_of_cotree_In_cotree :
-  forall {A : Type} (n : nat) (ct : Cotrees.cotree A) (a : A),
-    In_tree a (Cotrees.tree_of_cotree n ct) ->
-    Cotrees.In_cotree a ct.
-Proof.
-  induction n as [|n IH]; intros [r f] a Hin; simpl in Hin.
-  - inversion Hin; subst; [constructor|]. inversion H0.
-  - inversion Hin; subst; [constructor|].
-    apply Cotrees.In_cochildren.
-    rename H0 into Hex.
-    apply Exists_exists in Hex as [t [Hin_map Hin_t]].
-    apply in_map_iff in Hin_map as [ct' [Heq Hin_list]].
-    subst t.
-    apply Cotrees.CoExists_exists. exists ct'. split.
-    + apply In_list_of_colist with (n := S n).
-      change (In ct' (Cotrees.list_of_colist (S n) f)). exact Hin_list.
-    + exact (IH ct' a Hin_t).
-Qed.
-
 Lemma costep_iff_step :
   forall g1 g2,
     Cotrees.costep reversi_conext g1 g2 <-> step reversi_next_intrinsic g1 g2.

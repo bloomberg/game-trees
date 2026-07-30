@@ -8,6 +8,7 @@ clean: Makefile.coq
 	rm -f tictactoe.{ml,mli}
 	rm -f connectfour.{ml,mli}
 	rm -f reversi.{ml,mli}
+	rm -f hex.{ml,mli}
 	rm -f sat.{ml,mli}
 
 Makefile.coq: _CoqProject
@@ -19,6 +20,8 @@ c4:
 	ocaml connectfour.ml
 reversi:
 	ocaml reversi.ml
+hex:
+	ocaml hex.ml
 sat:
 	ocaml sat.ml
 
