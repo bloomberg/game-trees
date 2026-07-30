@@ -400,6 +400,30 @@ Fixpoint materialize {A : Type} (depth width : nat) (ct : cotree A)
     end
   end.
 
+(** Every node of the materialized prefix is a node of the [cotree]. *)
+Lemma materialize_In_cotree :
+  forall {A : Type} (depth width : nat) (ct : cotree A) (a : A),
+    In_tree a (materialize depth width ct) -> In_cotree a ct.
+Proof.
+  induction depth as [|d IH]; intros width [r f] a Hin; simpl in Hin.
+  - inversion Hin; subst; [constructor|].
+    inversion H0.
+  - inversion Hin; subst; [constructor|].
+    apply In_cochildren.
+    apply CoExists_exists.
+    destruct f as [|first rest].
+    + inversion H0.
+    + inversion H0; subst.
+      * exists first; split; [constructor | eapply IH; eauto].
+      * apply Exists_exists in H1 as [t [Hin_map Hin_t]].
+        apply in_map_iff in Hin_map as [ct' [Heq Hin_list]].
+        subst t.
+        exists ct'; split.
+        -- apply In_cocons_tl.
+           eapply Cotrees.In_list_of_colist; eauto.
+        -- eapply IH; eauto.
+Qed.
+
 (** The lazy cotree evaluator agrees with ordinary alpha-beta on the
     materialized finite prefix it traverses.
 

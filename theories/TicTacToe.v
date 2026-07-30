@@ -15,6 +15,7 @@ Import ListNotations.
 Require Import GameTrees.Helpers.
 Require Import GameTrees.Relations.
 Require Import GameTrees.Trees.
+Require Import GameTrees.Determinacy.
 Require GameTrees.Cotrees.
 Require Import GameTrees.Eval.
 Require Import GameTrees.AlphaBeta.
@@ -325,3 +326,114 @@ Definition score (g : game) : nat :=
 Theorem ttt_minimax_draw :
   eval_ab players_le_ge score (fun _ => false) complete_tree_again = 1.
 Proof. vm_compute. reflexivity. Qed.
+
+(** * Forcing predicates on the shared Zermelo kernel *)
+
+(** Tic-tac-toe has no forcing predicates of its own: the depth-indexed
+    notions come from [GameTrees.Determinacy] under one outcome map, with [x]
+    as the kernel's positive player. *)
+
+Definition ttt_amove (g : game) : bool :=
+  if dec_eq_player (next_turn g) x then true else false.
+
+(** Tic-tac-toe is drawable, so the outcome map says so. *)
+Definition ttt_outc (g : game) : option outcome :=
+  match get_result g with
+  | won_by x => Some (win true)
+  | won_by o => Some (win false)
+  | draw => Some drawn
+  | ongoing => None
+  end.
+
+Lemma ttt_outc_ongoing :
+  forall g, ttt_outc g = None -> get_result g = ongoing.
+Proof.
+  intros g H; unfold ttt_outc in H.
+  destruct (get_result g) as [[]| |] eqn:E; try discriminate; auto.
+Qed.
+
+(** [x] forces a win, [o] forces a win, and either forcing a non-loss. *)
+Definition x_can_force_win (fuel : nat) (g : game) : Prop :=
+  forces moves apply_move ttt_amove ttt_outc true fuel g.
+
+Definition o_can_force_win (fuel : nat) (g : game) : Prop :=
+  forces moves apply_move ttt_amove ttt_outc false fuel g.
+
+Definition x_can_force_draw (fuel : nat) (g : game) : Prop :=
+  nonloss moves apply_move ttt_amove ttt_outc true fuel g.
+
+Definition o_can_force_draw (fuel : nat) (g : game) : Prop :=
+  nonloss moves apply_move ttt_amove ttt_outc false fuel g.
+
+(** The kernel's exclusion lemmas transfer with no further work. *)
+Theorem ttt_not_both_win :
+  forall fuel g, x_can_force_win fuel g -> o_can_force_win fuel g -> False.
+Proof. intros fuel g; apply forces_not_both. Qed.
+
+Theorem ttt_win_not_draw :
+  forall fuel g, o_can_force_win fuel g -> x_can_force_draw fuel g -> False.
+Proof.
+  intros fuel g Ho Hx.
+  exact (forces_not_nonloss moves apply_move ttt_amove ttt_outc true fuel g
+           Ho Hx).
+Qed.
+
+(** ** Tic-tac-toe is a draw, in the forcing sense *)
+
+(** The kernel's Boolean solver, specialised. *)
+Definition ttt_x_draw_b (fuel : nat) (g : game) : bool :=
+  nonloss_b moves apply_move ttt_amove ttt_outc true fuel g.
+
+Definition ttt_o_draw_b (fuel : nat) (g : game) : bool :=
+  nonloss_b moves apply_move ttt_amove ttt_outc false fuel g.
+
+Definition ttt_x_win_b (fuel : nat) (g : game) : bool :=
+  forces_b moves apply_move ttt_amove ttt_outc true fuel g.
+
+Definition ttt_o_win_b (fuel : nat) (g : game) : bool :=
+  forces_b moves apply_move ttt_amove ttt_outc false fuel g.
+
+(** Nine plies exhaust the board, so this fuel decides the game outright. *)
+Theorem ttt_x_can_force_draw : x_can_force_draw 9 ttt_init.
+Proof.
+  apply (proj1 (nonloss_b_correct moves apply_move ttt_amove ttt_outc true
+                  9 ttt_init)).
+  vm_compute; reflexivity.
+Qed.
+
+Theorem ttt_o_can_force_draw : o_can_force_draw 9 ttt_init.
+Proof.
+  apply (proj1 (nonloss_b_correct moves apply_move ttt_amove ttt_outc false
+                  9 ttt_init)).
+  vm_compute; reflexivity.
+Qed.
+
+(** Neither side can do better than a draw: with both players holding a
+    non-loss, the kernel's exclusion lemma refutes either win. *)
+Theorem ttt_x_cannot_force_win : ~ x_can_force_win 9 ttt_init.
+Proof.
+  intros Hx.
+  exact (forces_not_nonloss moves apply_move ttt_amove ttt_outc false 9
+           ttt_init Hx ttt_o_can_force_draw).
+Qed.
+
+Theorem ttt_o_cannot_force_win : ~ o_can_force_win 9 ttt_init.
+Proof.
+  intros Ho.
+  exact (forces_not_nonloss moves apply_move ttt_amove ttt_outc true 9 ttt_init
+           Ho ttt_x_can_force_draw).
+Qed.
+
+(** Tic-tac-toe is drawn: both sides force a draw and neither can force a win.
+    This is [ttt_minimax_draw] as a statement about strategies rather than
+    about the value of the game tree. *)
+Theorem ttt_drawn :
+  x_can_force_draw 9 ttt_init /\ o_can_force_draw 9 ttt_init /\
+  ~ x_can_force_win 9 ttt_init /\ ~ o_can_force_win 9 ttt_init.
+Proof.
+  repeat split.
+  - exact ttt_x_can_force_draw.
+  - exact ttt_o_can_force_draw.
+  - exact ttt_x_cannot_force_win.
+  - exact ttt_o_cannot_force_win.
+Qed.

@@ -2,5 +2,5 @@
  (name GameTrees)
  (package rocq-game-trees)
  (synopsis "Definitions and functions about game trees in Rocq")
- (theories Stdlib ExtLib)
- (modules Helpers Relations Trees Cotrees Eval AlphaBeta Reversi))
+ (theories Stdlib ExtLib SimpleIO)
+ (modules :standard))

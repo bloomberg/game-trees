@@ -1035,143 +1035,8 @@ Proof.
   - exact players_le_ge_adversarial.
 Qed.
 
-(** Lazy alpha-beta on cotrees. *)
-
-(** Alpha-beta evaluation directly on cotrees. Unlike [eval_ab] which
-   requires a fully materialized [tree], this version unfolds the
-   [cotree] lazily as branches are visited. In [vm_compute], cofixpoints
-   are only reduced on pattern match, so pruned branches are never
-   constructed — making evaluation of large game trees tractable.
-
-   [depth] bounds the tree depth (42 for Connect Four).
-   [width] bounds children per node (7 for Connect Four). *)
-Fixpoint eval_ab_co
-    {G S : Type}
-    (depth width : nat)
-    (ps : players S)
-    (score : G -> S)
-    (cutoff : S -> bool)
-    (ct : cotree G) : S :=
-  match depth with
-  | O => score (match ct with conode g _ => g end)
-  | S depth' =>
-    match ps with
-    | Streams.Cons (existT _ R D) ps' =>
-      match ct with
-      | conode g f =>
-        match f with
-        | conil => score g
-        | cocons first_child rest =>
-          let first_val := eval_ab_co depth' width ps' score
-                             (fun _ => false) first_child in
-          (fix go (fuel : nat) (best : S)
-               (remaining : colist (cotree G)) : S :=
-            match fuel with
-            | O => best
-            | S fuel' =>
-              match remaining with
-              | conil => best
-              | cocons child rest' =>
-                if cutoff best then best
-                else
-                  let v := eval_ab_co depth' width ps' score
-                             (fun s => @rel_dec _ _ D s best) child in
-                  go fuel' (max2 R best v) rest'
-              end
-            end) width first_val rest
-        end
-      end
-    end
-  end.
-
-(** Materialization of a cotree matching [eval_ab_co]'s traversal pattern:
-   the first child is always included, and up to [width] siblings follow.
-   Unlike [tree_of_cotree] which ties depth and width to a single fuel
-   parameter, this keeps them independent. *)
-Fixpoint materialize {A : Type} (depth width : nat) (ct : cotree A)
-    : tree A :=
-  match depth with
-  | O => match ct with conode a _ => node a [] end
-  | S depth' =>
-    match ct with
-    | conode a f =>
-      node a (match f with
-              | conil => []
-              | cocons first rest =>
-                materialize depth' width first ::
-                map (materialize depth' width)
-                    (Cotrees.list_of_colist width rest)
-              end)
-    end
-  end.
-
-Theorem eval_ab_co_correct :
-  forall {G S : Type} (depth width : nat) (ps : players S)
-         (score : G -> S) (cutoff : S -> bool) (ct : cotree G),
-    eval_ab_co depth width ps score cutoff ct =
-    eval_ab ps score cutoff (materialize depth width ct).
-Proof.
-  induction depth as [|n IH]; intros width ps score cutoff [g f].
-  - destruct ps as [[R D] ps']. reflexivity.
-  - destruct ps as [[R D] ps']. simpl.
-    destruct f as [|first rest].
-    + reflexivity.
-    + rewrite IH.
-      set (init := eval_ab ps' score (fun _ : S => false)
-                     (materialize n width first)).
-      clearbody init.
-      assert (Hgo : forall fuel init0 rest0,
-        (fix go (fuel0 : nat) (best : S)
-             (remaining : colist (cotree G)) : S :=
-          match fuel0 with
-          | O => best
-          | S fuel' =>
-            match remaining with
-            | conil => best
-            | cocons child rest' =>
-              if cutoff best then best
-              else
-                let v := eval_ab_co n width ps' score
-                           (fun s => @rel_dec _ _ D s best) child in
-                go fuel' (max2 R best v) rest'
-            end
-          end) fuel init0 rest0
-        =
-        (fix go (best : S) (remaining : list (tree G)) : S :=
-          match remaining with
-          | [] => best
-          | c' :: remaining' =>
-            if cutoff best then best
-            else
-              let v := eval_ab ps' score
-                         (fun s => @rel_dec _ _ D s best) c' in
-              go (max2 R best v) remaining'
-          end) init0
-          (map (materialize n width) (Cotrees.list_of_colist fuel rest0))).
-      { induction fuel as [|f IHf]; intros init0 rest0.
-        - reflexivity.
-        - destruct rest0 as [|child rest'].
-          + simpl. reflexivity.
-          + simpl.
-            destruct (cutoff init0) eqn:Ecut.
-            * reflexivity.
-            * rewrite IH. apply IHf. }
-      apply Hgo.
-Qed.
-
-(** Alpha-beta on cotrees computes the same minimax value as the
-   reference evaluator on the materialized tree. *)
-Corollary eval_ab_co_minimax :
-  forall (depth width : nat) (ct : cotree game),
-    eval_ab_co depth width players_le_ge score (fun _ => false) ct =
-    eval_val players_le_ge score (materialize depth width ct).
-Proof.
-  intros.
-  rewrite eval_ab_co_correct.
-  apply eval_ab_correct.
-  - exact players_le_ge_strong.
-  - exact players_le_ge_adversarial.
-Qed.
+(** The lazy cotree evaluator, its materialisation and their correctness
+    theorems come from [GameTrees.AlphaBeta]. *)
 
 (** AI. *)
 
@@ -2428,6 +2293,7 @@ Import ListNotations.
 
 Require Import GameTrees.Relations.
 Require Import GameTrees.Trees.
+Require Import GameTrees.Determinacy.
 Require Import GameTrees.Eval.
 Require Import GameTrees.AlphaBeta.
 
@@ -2653,6 +2519,279 @@ Fixpoint red_can_force_win (fuel : nat) (g : game) : Prop :=
       end
     end.
 
+(** The forcing predicates and the minimax value recurse on a fuel argument
+    that later statements supply as a numeral. Unfolding one of them fans out
+    over every legal move sequence, so the conversion oracle is told to reach
+    for them last; [simpl] still steps them where a proof asks for it. *)
+Strategy 1000
+  [value_fuel red_can_force_nonloss yellow_can_force_win red_can_force_win].
+
+(** * The generic forcing framework, instantiated *)
+
+(** The three predicates above are instances of the shared kernel under one
+    outcome map: red winning is [forces true], yellow winning is
+    [forces false], and red holding a draw is [nonloss true]. The kernel then
+    supplies the three-way split, the exclusion lemmas and the solver. *)
+
+Definition c4_amove (g : game) : bool := player_eqb (next_turn g) red.
+
+(** Connect Four can be drawn, so the outcome map says so. *)
+Definition c4_outc (g : game) : option outcome :=
+  match get_result g with
+  | won_by red => Some (win true)
+  | won_by yellow => Some (win false)
+  | draw => Some drawn
+  | ongoing => None
+  end.
+
+Lemma c4_outc_ongoing :
+  forall g, c4_outc g = None -> get_result g = ongoing.
+Proof.
+  intros g H; unfold c4_outc in H.
+  destruct (get_result g) as [[]| |] eqn:E; try discriminate; auto.
+Qed.
+
+(** An undecided position always offers a move. *)
+Lemma moves_nonempty_of_ongoing :
+  forall g,
+    valid_board (current_board g) -> get_result g = ongoing ->
+    exists m, In m (moves g).
+Proof.
+  intros g Hvb Hres.
+  destruct (moves g) as [|m rest] eqn:Em; [|exists m; left; reflexivity].
+  exfalso.
+  assert (Hall : forall mv, In mv all_moves ->
+            6 <= length (column_of_move mv (current_board g))).
+  { intros mv Hmv.
+    destruct (Nat.ltb (length (column_of_move mv (current_board g))) 6) eqn:E.
+    - exfalso.
+      assert (Hin : In mv (moves g)).
+      { apply moves_complete, valid_move_intro; auto.
+        apply Nat.ltb_lt; exact E. }
+      rewrite Em in Hin; destruct Hin.
+    - apply Nat.ltb_ge in E; exact E. }
+  assert (H0 : 6 <= length (c0 (current_board g)))
+    by (apply (Hall col0); simpl; tauto).
+  assert (H1 : 6 <= length (c1 (current_board g)))
+    by (apply (Hall col1); simpl; tauto).
+  assert (H2 : 6 <= length (c2 (current_board g)))
+    by (apply (Hall col2); simpl; tauto).
+  assert (H3 : 6 <= length (c3 (current_board g)))
+    by (apply (Hall col3); simpl; tauto).
+  assert (H4 : 6 <= length (c4 (current_board g)))
+    by (apply (Hall col4); simpl; tauto).
+  assert (H5 : 6 <= length (c5 (current_board g)))
+    by (apply (Hall col5); simpl; tauto).
+  assert (H6 : 6 <= length (c6 (current_board g)))
+    by (apply (Hall col6); simpl; tauto).
+  destruct Hvb as (V0 & V1 & V2 & V3 & V4 & V5 & V6).
+  assert (Hfull : total_pieces (current_board g) = 42)
+    by (unfold total_pieces; lia).
+  unfold get_result in Hres.
+  destruct (has_won (current_board g) red); [discriminate|].
+  destruct (has_won (current_board g) yellow); [discriminate|].
+  rewrite Hfull in Hres; simpl in Hres; discriminate.
+Qed.
+
+(** A game step preserves the board invariant. *)
+Lemma valid_board_step :
+  forall g m,
+    valid_board (current_board g) -> get_result g = ongoing ->
+    In m (moves g) ->
+    valid_board (current_board (apply_move g m)).
+Proof.
+  intros g m Hvb Hres Hm.
+  apply valid_board_apply_move; auto.
+  apply in_moves_valid; exact Hm.
+Qed.
+
+(** A game step strictly consumes an empty slot. *)
+Lemma empty_slots_step :
+  forall g m,
+    get_result g = ongoing -> In m (moves g) ->
+    empty_slots (apply_move g m) < empty_slots g.
+Proof.
+  intros g m Hres Hm.
+  apply less_empty_slots_after_apply_move.
+  apply in_moves_valid; exact Hm.
+Qed.
+
+(** ** Determinacy *)
+
+(** Connect Four is determined: with fuel for every remaining slot, either one
+    side forces a win or both sides hold a draw. This is [zermelo_three_way] on
+    the empty-slot measure. *)
+Theorem c4_determined :
+  forall fuel g,
+    valid_board (current_board g) -> empty_slots g <= fuel ->
+    forces moves apply_move c4_amove c4_outc true fuel g \/
+    forces moves apply_move c4_amove c4_outc false fuel g \/
+    (nonloss moves apply_move c4_amove c4_outc true fuel g /\
+     nonloss moves apply_move c4_amove c4_outc false fuel g).
+Proof.
+  intros fuel g Hvb Hfuel.
+  apply (zermelo_three_way moves apply_move c4_amove c4_outc
+           (fun h => valid_board (current_board h))
+           empty_slots); auto.
+  - intros s m Hs Ho Hm.
+    apply valid_board_step; auto; apply c4_outc_ongoing; exact Ho.
+  - intros s m Hs Ho Hm.
+    apply empty_slots_step; auto; apply c4_outc_ongoing; exact Ho.
+  - intros s Hs Ho.
+    apply moves_nonempty_of_ongoing; auto; apply c4_outc_ongoing; exact Ho.
+Qed.
+
+(** Mutual exclusion: both sides cannot win, and a win for one side
+    denies the other even a draw. *)
+Theorem c4_not_both_win :
+  forall fuel g,
+    forces moves apply_move c4_amove c4_outc true fuel g ->
+    forces moves apply_move c4_amove c4_outc false fuel g -> False.
+Proof.
+  intros fuel g; apply forces_not_both.
+Qed.
+
+Theorem c4_win_not_nonloss :
+  forall who fuel g,
+    forces moves apply_move c4_amove c4_outc (negb who) fuel g ->
+    nonloss moves apply_move c4_amove c4_outc who fuel g -> False.
+Proof.
+  intros who fuel g; apply forces_not_nonloss.
+Qed.
+
+(** ** Bridges to the depth-indexed predicates *)
+
+(** [c4_next] enumerates exactly the plays of the legal moves. *)
+Lemma in_c4_next_iff :
+  forall g g',
+    get_result g = ongoing ->
+    (In g' (c4_next g) <-> exists m, In m (moves g) /\ g' = apply_move g m).
+Proof.
+  intros g g' Hres; unfold c4_next; rewrite Hres; split.
+  - intros Hin; apply in_map_iff in Hin.
+    destruct Hin as [m [Heq Hm]]; exists m; split; auto.
+  - intros [m [Hm ->]]; apply in_map; exact Hm.
+Qed.
+
+(** Forcing in the generic sense gives the depth-indexed predicate. The
+    converse needs fuel to outlast the game, so this is the direction that
+    transfers without a side condition. *)
+Lemma forces_win_red_can :
+  forall fuel g,
+    forces moves apply_move c4_amove c4_outc true fuel g ->
+    red_can_force_win fuel g.
+Proof.
+  induction fuel as [|f IH]; intros g H.
+  - apply (proj1 (forces_0_iff moves apply_move c4_amove c4_outc true g)) in H.
+    unfold c4_outc in H.
+    destruct (get_result g) as [[]| |] eqn:E; simpl in H;
+      try discriminate; try (destruct H); auto.
+  - apply (proj1 (forces_S_iff moves apply_move c4_amove c4_outc true f g))
+      in H.
+    simpl; unfold c4_outc, c4_amove in H.
+    destruct (get_result g) as [[]| |] eqn:E; simpl in H;
+      try discriminate; try exact I.
+    destruct (next_turn g) eqn:Et; simpl in H.
+    + destruct H as [m [Hm Hw]].
+      exists (apply_move g m); split; [|apply IH; exact Hw].
+      apply (in_c4_next_iff g); auto; exists m; auto.
+    + intros g' Hin.
+      apply (in_c4_next_iff g) in Hin; auto.
+      destruct Hin as [m [Hm ->]].
+      apply IH, H; exact Hm.
+Qed.
+
+Lemma forces_win_yellow_can :
+  forall fuel g,
+    forces moves apply_move c4_amove c4_outc false fuel g ->
+    yellow_can_force_win fuel g.
+Proof.
+  induction fuel as [|f IH]; intros g H.
+  - apply (proj1 (forces_0_iff moves apply_move c4_amove c4_outc false g)) in H.
+    unfold c4_outc in H.
+    destruct (get_result g) as [[]| |] eqn:E; simpl in H;
+      try discriminate; try (destruct H); auto.
+  - apply (proj1 (forces_S_iff moves apply_move c4_amove c4_outc false f g))
+      in H.
+    simpl; unfold c4_outc, c4_amove in H.
+    destruct (get_result g) as [[]| |] eqn:E; simpl in H;
+      try discriminate; try exact I.
+    destruct (next_turn g) eqn:Et; simpl in H.
+    + intros g' Hin.
+      apply (in_c4_next_iff g) in Hin; auto.
+      destruct Hin as [m [Hm ->]].
+      apply IH, H; exact Hm.
+    + destruct H as [m [Hm Hw]].
+      exists (apply_move g m); split; [|apply IH; exact Hw].
+      apply (in_c4_next_iff g); auto; exists m; auto.
+Qed.
+
+Lemma nonloss_red_can :
+  forall fuel g,
+    nonloss moves apply_move c4_amove c4_outc true fuel g ->
+    red_can_force_nonloss fuel g.
+Proof.
+  induction fuel as [|f IH]; intros g H.
+  - apply (proj1 (nonloss_0_iff moves apply_move c4_amove c4_outc true g)) in H.
+    change (get_result g <> won_by yellow).
+    unfold c4_outc in H.
+    destruct (get_result g) as [[]| |] eqn:E; simpl in H.
+    + discriminate.
+    + discriminate H.
+    + discriminate.
+    + destruct H.
+  - apply (proj1 (nonloss_S_iff moves apply_move c4_amove c4_outc true f g))
+      in H.
+    simpl; unfold c4_outc, c4_amove in H.
+    destruct (get_result g) as [[]| |] eqn:E; simpl in H;
+      try discriminate; try exact I.
+    destruct (next_turn g) eqn:Et; simpl in H.
+    + destruct H as [m [Hm Hw]].
+      exists (apply_move g m); split; [|apply IH; exact Hw].
+      apply (in_c4_next_iff g); auto; exists m; auto.
+    + intros g' Hin.
+      apply (in_c4_next_iff g) in Hin; auto.
+      destruct Hin as [m [Hm ->]].
+      apply IH, H; exact Hm.
+Qed.
+
+(** ** A Boolean solver *)
+
+(** The generic decision procedure, specialised to Connect Four. *)
+Definition c4_red_wins_b (fuel : nat) (g : game) : bool :=
+  forces_b moves apply_move c4_amove c4_outc true fuel g.
+
+Definition c4_yellow_wins_b (fuel : nat) (g : game) : bool :=
+  forces_b moves apply_move c4_amove c4_outc false fuel g.
+
+Definition c4_red_nonloss_b (fuel : nat) (g : game) : bool :=
+  nonloss_b moves apply_move c4_amove c4_outc true fuel g.
+
+Lemma c4_red_wins_b_sound :
+  forall fuel g, c4_red_wins_b fuel g = true -> red_can_force_win fuel g.
+Proof.
+  intros fuel g H; apply forces_win_red_can.
+  apply (forces_b_correct moves apply_move c4_amove c4_outc true fuel g);
+    exact H.
+Qed.
+
+Lemma c4_yellow_wins_b_sound :
+  forall fuel g, c4_yellow_wins_b fuel g = true -> yellow_can_force_win fuel g.
+Proof.
+  intros fuel g H; apply forces_win_yellow_can.
+  apply (forces_b_correct moves apply_move c4_amove c4_outc false fuel g);
+    exact H.
+Qed.
+
+Lemma c4_red_nonloss_b_sound :
+  forall fuel g,
+    c4_red_nonloss_b fuel g = true -> red_can_force_nonloss fuel g.
+Proof.
+  intros fuel g H; apply nonloss_red_can.
+  apply (nonloss_b_correct moves apply_move c4_amove c4_outc true fuel g);
+    exact H.
+Qed.
+
 Lemma red_can_force_win_yellow_children :
   forall fuel g,
     get_result g = ongoing ->
@@ -2681,31 +2820,7 @@ Proof.
   exact (Hy g' Hin).
 Qed.
 
-Lemma split_exists_or_forall :
-  forall (A : Type) (P Q : A -> Prop) (l : list A),
-    (forall x, In x l -> P x \/ Q x) ->
-    (exists x, In x l /\ P x) \/ (forall x, In x l -> Q x).
-Proof.
-  intros A P Q l.
-  induction l as [|a l IH]; intros Hall.
-  - right. intros x Hin. inversion Hin.
-  - pose proof (Hall a (or_introl eq_refl)) as Hhead.
-    destruct Hhead as [HaP | HaQ].
-    + left. exists a. split; [left; reflexivity | exact HaP].
-    + assert (Hall_tail : forall x : A, In x l -> P x \/ Q x).
-      { intros x Hin.
-        apply Hall.
-        right; exact Hin. }
-      destruct (IH Hall_tail) as [Hex | HallQ].
-      * left.
-        destruct Hex as [x [Hin HP]].
-        exists x. split; [right; exact Hin | exact HP].
-      * right.
-        intros x Hin.
-        destruct Hin as [Hx | Hin'].
-        -- subst x. exact HaQ.
-        -- apply HallQ. exact Hin'.
-Qed.
+(** [split_exists_or_forall] comes from [GameTrees.Helpers]. *)
 
 Theorem red_nonloss_or_yellow_win :
   forall fuel g,
@@ -2731,7 +2846,7 @@ Proof.
              red_can_force_nonloss fuel x \/ yellow_can_force_win fuel x).
         { intros x Hin.
           apply IH. }
-        destruct (split_exists_or_forall game
+        destruct (@split_exists_or_forall game
                     (fun x => red_can_force_nonloss fuel x)
                     (fun x => yellow_can_force_win fuel x)
                     (c4_next g) Hall) as [Hex | HallQ].
@@ -2755,7 +2870,7 @@ Proof.
           destruct Hall as [Hr | Hy].
           - right. exact Hr.
           - left. exact Hy. }
-        destruct (split_exists_or_forall game
+        destruct (@split_exists_or_forall game
                     (fun x => yellow_can_force_win fuel x)
                     (fun x => red_can_force_nonloss fuel x)
                     (c4_next g) Hall') as [Hex | HallR].

@@ -435,6 +435,40 @@ Proof.
   rewrite -> In_colist_iff_In_colist_of_list in pf'; auto.
 Qed.
 
+(** Every element of a fueled prefix of a [colist] is in the [colist]. *)
+Lemma In_list_of_colist :
+  forall {A : Type} (fuel : nat) (cl : colist A) (x : A),
+    In x (list_of_colist fuel cl) -> In_colist x cl.
+Proof.
+  induction fuel as [|fuel IH]; intros cl x Hin; simpl in Hin.
+  - contradiction.
+  - destruct cl as [|y ys].
+    + contradiction.
+    + destruct Hin as [Heq | Hin'].
+      * subst; constructor.
+      * constructor; exact (IH ys x Hin').
+Qed.
+
+(** Every node in a fueled [tree] prefix of a [cotree] is in the [cotree]. *)
+Lemma tree_of_cotree_In_cotree :
+  forall {A : Type} (fuel : nat) (ct : cotree A) (a : A),
+    In_tree a (tree_of_cotree fuel ct) ->
+    In_cotree a ct.
+Proof.
+  induction fuel as [|fuel IH]; intros [r f] a Hin; simpl in Hin.
+  - inversion Hin; subst; [constructor|]. inversion H0.
+  - inversion Hin; subst; [constructor|].
+    apply In_cochildren.
+    rename H0 into Hex.
+    apply Exists_exists in Hex as [t [Hin_map Hin_t]].
+    apply in_map_iff in Hin_map as [ct' [Heq Hin_list]].
+    subst t.
+    apply CoExists_exists. exists ct'. split.
+    + apply In_list_of_colist with (fuel := S fuel).
+      change (In ct' (list_of_colist (S fuel) f)). exact Hin_list.
+    + exact (IH ct' a Hin_t).
+Qed.
+
 (** The [colist] counterpart of [in_map]. *)
 Lemma in_comap :
   forall {A B : Type} (f : A -> B) (l : colist A) (x : A),
