@@ -2653,6 +2653,13 @@ Fixpoint red_can_force_win (fuel : nat) (g : game) : Prop :=
       end
     end.
 
+(** The forcing predicates and the minimax value recurse on a fuel argument
+    that later statements supply as a numeral. Unfolding one of them fans out
+    over every legal move sequence, so the conversion oracle is told to reach
+    for them last; [simpl] still steps them where a proof asks for it. *)
+Strategy 1000
+  [value_fuel red_can_force_nonloss yellow_can_force_win red_can_force_win].
+
 Lemma red_can_force_win_yellow_children :
   forall fuel g,
     get_result g = ongoing ->
