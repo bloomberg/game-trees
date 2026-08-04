@@ -2679,9 +2679,6 @@ Proof.
   destruct Hr as [H | [H | [H | H]]]; rewrite H; reflexivity.
 Qed.
 
-Lemma vopen_chain3_abs : forall w, vopen (Chain 3) w = 1 + Z.abs (w - 2).
-Proof. intros w; reflexivity. Qed.
-
 (** With a three-chain present and no four-loops, opening a three-chain is
     optimal and the value is given by the parity of the board and, in the
     single three-chain case, its residue modulo four. *)
@@ -2720,7 +2717,7 @@ Proof.
       by (simpl csize in Hsz; lia).
     assert (Hopt : value_open (Chain 3, rest) =
                    w35z (count3 G) (Z.of_nat (size G))).
-    { unfold value_open; cbn [fst snd]; rewrite vopen_chain3_abs.
+    { unfold value_open; cbn [fst snd]; rewrite vopen_chain3.
       destruct (existsb is_3chain_b rest) eqn:E3r.
       - (* another three-chain remains *)
         assert (HrNil : rest <> [])
@@ -3744,7 +3741,7 @@ Proof.
            assert (Hv3 : value rest3 = w38 (cval rest3) (count4 rest3))
              by (apply value_no3; assumption).
            assert (Hopt3 : value_open (Chain 3, rest3) = 3).
-           { unfold value_open; cbn [fst snd]; rewrite vopen_chain3_abs, Hv3.
+           { unfold value_open; cbn [fst snd]; rewrite vopen_chain3, Hv3.
              destruct (w38_mod4_0 (cval rest3) (count4 rest3) Hcm0) as [E | E];
                rewrite E; reflexivity. }
            (* the four-loop option *)

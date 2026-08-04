@@ -40,25 +40,16 @@ Import ListNotations.
 Open Scope Z_scope.
 
 (** ****************************************************************** *)
-(** Berlekamp's control bound for the capped recursion, and case (iii).
+(** The capped weight, and the base built from it.
 
-    [DotsAndBoxes.cval_le_value] is the control bound: the controller who never
-    gives up control banks the controlled value, so it is a lower bound on the
-    value. It is stated for [wf] positions only, and its terminal bonus reads
-    the shape of the whole position, which is what fails once a chain of one or
-    two boxes is admitted: those have no handout to leave.
+    [DotsAndBoxes.cbase] sums each component's length less twice its handout.
+    With the handout capped at the component, [scbase] is that same sum for the
+    capped recursion, and it agrees with Berlekamp's wherever a chain is long
+    enough to spare a handout at all. What goes on top of it is the terminal
+    bonus, which cannot simply be reused; the next section shows why, and the
+    one after that supplies the replacement. *)
 
-    [scval_le_svalue] is the bound for the capped recursion, on every [swf]
-    position. Its terminal bonus is the smallest handout the position holds,
-    doubled, which is what the opener can always force the controller to end
-    on. It is weaker than Berlekamp's on the positions both cover, and it is
-    exact on a single component.
-
-    [case_iii_only34] settles case (iii) of Allcock's Theorem 1.1 on the
-    positions of three-chains and four-loops, where the closed form is the
-    table of [value_mix]. *)
-
-(** * The capped weight and terminal bonus *)
+(** * The capped weight *)
 
 (** What a component is worth to the controller who declines it. *)
 Definition sweight (C : comp) : Z :=
@@ -67,62 +58,9 @@ Definition sweight (C : comp) : Z :=
 Fixpoint scbase (G : position) : Z :=
   match G with [] => 0 | C :: r => sweight C + scbase r end.
 
-(** The handout a component offers, doubled: what the controller gains by
-    taking it whole instead of declining it. *)
-Definition hb (C : comp) : Z := 2 * Z.of_nat (shand C).
-
-Lemma hb_le8 : forall C, hb C <= 8.
-Proof.
-  intros C; unfold hb, shand.
-  pose proof (Nat.le_min_l (hand C) (csize C)) as H.
-  assert (Hh : (hand C <= 4)%nat) by (destruct C; simpl hand; lia).
-  lia.
-Qed.
-
-Lemma hb_nonneg : forall C, 0 <= hb C.
-Proof. intros C; unfold hb; lia. Qed.
-
-(** The opener chooses which component is left for last, so the controller can
-    count on no more than the smallest handout the position holds. *)
-Definition smin (G : position) : Z :=
-  fold_right (fun C acc => Z.min (hb C) acc) 8 G.
-
-Lemma smin_nil : smin [] = 8.
-Proof. reflexivity. Qed.
-
-Lemma smin_cons : forall C G, smin (C :: G) = Z.min (hb C) (smin G).
-Proof. reflexivity. Qed.
-
-Lemma smin_single : forall C, smin [C] = hb C.
-Proof.
-  intros C; rewrite smin_cons, smin_nil.
-  pose proof (hb_le8 C); lia.
-Qed.
-
-Lemma smin_le_tail : forall C G, smin (C :: G) <= smin G.
-Proof. intros C G; rewrite smin_cons; apply Z.le_min_r. Qed.
-
-Lemma smin_perm : forall G H, Permutation G H -> smin G = smin H.
-Proof.
-  intros G H HP; induction HP.
-  - reflexivity.
-  - rewrite !smin_cons, IHHP; reflexivity.
-  - rewrite !smin_cons; lia.
-  - congruence.
-Qed.
-
 Lemma scbase_perm : forall G H, Permutation G H -> scbase G = scbase H.
 Proof.
   intros G H HP; induction HP; simpl; try lia; congruence.
-Qed.
-
-(** The capped controlled value. *)
-Definition scval (G : position) : Z := scbase G + smin G.
-
-Lemma scval_single : forall C, scval [C] = Z.of_nat (csize C).
-Proof.
-  intros C; unfold scval; simpl scbase; rewrite smin_single.
-  unfold sweight, hb; lia.
 Qed.
 
 Lemma selections_scbase :
@@ -132,15 +70,7 @@ Proof.
   rewrite <- (scbase_perm _ _ (selections_perm G p Hp)); reflexivity.
 Qed.
 
-Lemma selections_smin :
-  forall G p,
-    In p (selections G) -> smin G = Z.min (hb (fst p)) (smin (snd p)).
-Proof.
-  intros G p Hp.
-  rewrite <- (smin_perm _ _ (selections_perm G p Hp)), smin_cons; reflexivity.
-Qed.
-
-(** * The bound *)
+(** * Bounding the capped value from below *)
 
 (** A lower bound on every option is a lower bound on the capped value. *)
 Lemma svalue_lower_bound :
@@ -153,115 +83,6 @@ Proof.
   destruct (svalue_attained G HNil) as [p [Hp Hval]].
   rewrite Hval; apply Hb; exact Hp.
 Qed.
-
-(** The control bound for the capped recursion: on every position of chains of
-    any length and loops, the controller who keeps control banks at least the
-    capped controlled value. *)
-Theorem scval_le_svalue :
-  forall G, swf G -> G <> [] -> scval G <= svalue G.
-Proof.
-  assert (Haux : forall n G, (length G <= n)%nat -> swf G -> G <> [] ->
-                   scval G <= svalue G).
-  { induction n as [|n IH]; intros G Hn Hw HNil.
-    - exfalso; apply HNil; destruct G; [reflexivity | simpl in Hn; lia].
-    - apply svalue_lower_bound; [exact HNil|].
-      intros q Hq.
-      pose proof (selections_length G q Hq) as Hlen.
-      pose proof (selections_scbase G q Hq) as Hcb.
-      pose proof (selections_smin G q Hq) as Hsm.
-      destruct (selections_swf G q Hw Hq) as [HwC Hwr].
-      assert (Hsle : Z.of_nat (shand (fst q)) <= Z.of_nat (csize (fst q)))
-        by (pose proof (shand_le_csize (fst q)); lia).
-      destruct (list_eq_dec comp_eq_dec (snd q) []) as [Hnil | Hrne].
-      + (* the opened component is the last one, and is taken whole *)
-        assert (Hs0 : svalue (snd q) = 0)
-          by (rewrite Hnil; reflexivity).
-        assert (Hsm' : smin G = hb (fst q)).
-        { rewrite Hsm, Hnil, smin_nil.
-          pose proof (hb_le8 (fst q)); lia. }
-        assert (Hcb' : scbase G = sweight (fst q))
-          by (rewrite Hcb, Hnil; simpl scbase; lia).
-        unfold svalue_open, svopen; rewrite Hs0.
-        eapply Z.le_trans; [| apply Z.le_max_l].
-        unfold scval; rewrite Hcb', Hsm'; unfold sweight, hb; lia.
-      + (* otherwise decline it and appeal to what is left *)
-        assert (Hrec : scval (snd q) <= svalue (snd q))
-          by (apply IH; [lia | exact Hwr | exact Hrne]).
-        assert (Hmin : smin G <= smin (snd q))
-          by (rewrite Hsm; apply Z.le_min_r).
-        unfold svalue_open, svopen.
-        eapply Z.le_trans; [| apply Z.le_max_r].
-        unfold scval in Hrec |- *; unfold sweight in Hcb; lia. }
-  intros G Hw HNil; apply (Haux (length G)); [lia | exact Hw | exact HNil].
-Qed.
-
-(** The bound is attained on a single component, so it is not slack
-    everywhere. *)
-Corollary scval_tight_single :
-  forall C, swf_comp C -> scval [C] = svalue [C].
-Proof.
-  intros C _; rewrite scval_single.
-  assert (H : svalue [C] = svopen C (svalue []))
-    by (rewrite svalue_cons; reflexivity).
-  assert (Hn : svalue (@nil comp) = 0) by reflexivity.
-  rewrite H, Hn; unfold svopen.
-  assert (Hz : 0 <= Z.of_nat (shand C)) by lia.
-  rewrite Z.max_l by lia; lia.
-Qed.
-
-(** And it is a genuine bound where the uncapped theory cannot speak: a one-box
-    chain beside a three-chain. *)
-Example scval_short_instance :
-  scval [Chain 1; Chain 3] = 0 /\ svalue [Chain 1; Chain 3] = 2.
-Proof. split; reflexivity. Qed.
-
-(** * Case (iii) on positions of three-chains and four-loops *)
-
-(** Where the position is one three-chain among four-loops, opening a four-loop
-    attains the value, so it is an optimal opening. This is case (iii) of
-    Allcock's Theorem 1.1 restricted to the family the table of [value_mix]
-    covers. *)
-Theorem case_iii_only34 :
-  forall f rest,
-    In (Loop 4, rest) (selections (mix 1 (S f))) ->
-    value_open (Loop 4, rest) = value (mix 1 (S f)) /\
-    (forall q, In q (selections (mix 1 (S f))) ->
-       value_open (Loop 4, rest) <= value_open q).
-Proof.
-  intros f rest Hsel.
-  destruct (selections_mix 1 (S f) (Loop 4, rest) Hsel)
-    as [[Hc _] | [_ [f' [Hf Hperm]]]]; [cbn [fst] in Hc; discriminate|].
-  cbn [snd] in Hperm; injection Hf as Hf; subst f'.
-  assert (Hv : value rest = v36 1 f)
-    by (rewrite (value_perm rest (mix 1 f) Hperm); apply value_mix).
-  assert (Hop : value_open (Loop 4, rest) = value (mix 1 (S f))).
-  { unfold value_open; cbn [fst snd]; rewrite Hv, vopen_loop4, value_mix.
-    change (v36 1 f) with (if Nat.even f then 3 else 1).
-    change (v36 1 (S f)) with (if Nat.even (S f) then 3 else 1).
-    rewrite even_S; destruct (Nat.even f); reflexivity. }
-  assert (HNil : mix 1 (S f) <> []) by (apply mix_nonnil; simpl; lia).
-  split; [exact Hop|].
-  apply (proj1 (opener_optimal_iff _ _ HNil Hsel)); symmetry; exact Hop.
-Qed.
-
-(** Opening the three-chain instead is strictly worse as soon as a four-loop is
-    there, which is why case (iii) departs from the standard move. *)
-Theorem case_iii_chain_worse :
-  forall f rest,
-    In (Chain 3, rest) (selections (mix 1 (S f))) ->
-    value (mix 1 (S f)) <= value_open (Chain 3, rest).
-Proof.
-  intros f rest Hsel; apply value_le_open; exact Hsel.
-Qed.
-
-(** On the smallest instance the gap is visible: one three-chain and one
-    four-loop is worth one, opening the loop attains it, and opening the chain
-    costs two more. *)
-Example case_iii_smallest :
-  value (mix 1 1) = 1 /\
-  value_open (Loop 4, [Chain 3]) = 1 /\
-  value_open (Chain 3, [Loop 4]) = 3.
-Proof. repeat split; reflexivity. Qed.
 
 (** ****************************************************************** *)
 (** Two-component positions, and why Berlekamp's terminal bonus does not
@@ -448,30 +269,23 @@ Fixpoint dec1 (a : nat) (w : Z) : Z :=
 Lemma dec1_S : forall a w, dec1 (S a) w = Z.abs (dec1 a w - 1).
 Proof. reflexivity. Qed.
 
-(** The iteration stays inside the interval the component fixes. *)
-Lemma dec1_bounds : forall a w, 1 <= w -> 0 <= dec1 a w <= w.
-Proof.
-  induction a as [|a IH]; intros w Hw; simpl; [lia|].
-  destruct (IH w Hw) as [H1 H2]; lia.
-Qed.
+Definition onechains (a : nat) : position := repeat (Chain 1) a.
 
-Definition ones (a : nat) : position := repeat (Chain 1) a.
-
-Lemma ones_S : forall a, ones (S a) = Chain 1 :: ones a.
+Lemma onechains_S : forall a, onechains (S a) = Chain 1 :: onechains a.
 Proof. reflexivity. Qed.
 
-(** Removing a component from [ones a ++ [C]] leaves either a shorter such
-    position or the one-box chains alone. *)
+(** Removing a component from [onechains a ++ [C]] leaves either a shorter
+    such position or the one-box chains alone. *)
 Lemma selections_ones_one :
   forall a C p,
-    In p (selections (ones a ++ [C])) ->
-    (fst p = Chain 1 /\ exists a', a = S a' /\ snd p = ones a' ++ [C]) \/
-    (fst p = C /\ snd p = ones a).
+    In p (selections (onechains a ++ [C])) ->
+    (fst p = Chain 1 /\ exists a', a = S a' /\ snd p = onechains a' ++ [C]) \/
+    (fst p = C /\ snd p = onechains a).
 Proof.
   induction a as [|a IH]; intros C p Hp.
   - simpl in Hp; destruct Hp as [<- | []].
     right; split; reflexivity.
-  - rewrite ones_S in Hp; simpl app in Hp; simpl selections in Hp.
+  - rewrite onechains_S in Hp; simpl app in Hp; simpl selections in Hp.
     destruct Hp as [<- | Hp].
     + left; cbn [fst snd]; split; [reflexivity|].
       exists a; split; reflexivity.
@@ -481,23 +295,23 @@ Proof.
         cbn [fst snd] in Hc, Hs.
       * left; cbn [fst snd]; split; [exact Hc|].
         exists a; split; [reflexivity|].
-        rewrite Hs, Ha, ones_S; reflexivity.
+        rewrite Hs, Ha, onechains_S; reflexivity.
       * right; cbn [fst snd]; split; [exact Hc|].
-        rewrite Hs, ones_S; reflexivity.
+        rewrite Hs, onechains_S; reflexivity.
 Qed.
 
-Lemma ones_one_nonnil : forall a C, ones a ++ [C] <> [].
+Lemma ones_one_nonnil : forall a C, onechains a ++ [C] <> [].
 Proof.
   intros [|a] C; simpl; discriminate.
 Qed.
 
 (** The long component is always available to open. *)
 Lemma In_selections_ones_one :
-  forall a C, In (C, ones a) (selections (ones a ++ [C])).
+  forall a C, In (C, onechains a) (selections (onechains a ++ [C])).
 Proof.
   induction a as [|a IH]; intros C; [simpl; left; reflexivity|].
-  rewrite ones_S; simpl app; simpl selections; right.
-  apply in_map_iff; exists (C, ones a); split; [reflexivity | apply IH].
+  rewrite onechains_S; simpl app; simpl selections; right.
+  apply in_map_iff; exists (C, onechains a); split; [reflexivity | apply IH].
 Qed.
 
 (** The handout of a component with two boxes or more is between one and its
@@ -512,7 +326,8 @@ Qed.
     component is one of the opener's choices. *)
 Lemma svalue_ones_one_bounded :
   forall a C,
-    (2 <= csize C)%nat -> 0 <= svalue (ones a ++ [C]) <= Z.of_nat (csize C).
+    (2 <= csize C)%nat ->
+    0 <= svalue (onechains a ++ [C]) <= Z.of_nat (csize C).
 Proof.
   intros a C Hc; split; [apply svalue_nonneg|].
   eapply Z.le_trans;
@@ -529,8 +344,8 @@ Qed.
 Lemma open_long_not_better :
   forall a C,
     (2 <= csize C)%nat ->
-    Z.abs (svalue (ones a ++ [C]) - 1)
-      <= svopen C (svalue (ones (S a))).
+    Z.abs (svalue (onechains a ++ [C]) - 1)
+      <= svopen C (svalue (onechains (S a))).
 Proof.
   intros a C Hc.
   destruct (svalue_ones_one_bounded a C Hc) as [H1 H2].
@@ -548,13 +363,13 @@ Qed.
 Theorem svalue_ones_one :
   forall a C,
     (2 <= csize C)%nat ->
-    svalue (ones a ++ [C]) = dec1 a (Z.of_nat (csize C)).
+    svalue (onechains a ++ [C]) = dec1 a (Z.of_nat (csize C)).
 Proof.
   intros a C Hc; induction a as [|a IH].
-  - simpl ones; simpl app; simpl dec1; apply svalue_single_c.
-  - assert (Hopt : forall p, In p (selections (ones (S a) ++ [C])) ->
-              svalue_open p = Z.abs (svalue (ones a ++ [C]) - 1) \/
-              svalue_open p = svopen C (svalue (ones (S a)))).
+  - simpl onechains; simpl app; simpl dec1; apply svalue_single_c.
+  - assert (Hopt : forall p, In p (selections (onechains (S a) ++ [C])) ->
+              svalue_open p = Z.abs (svalue (onechains a ++ [C]) - 1) \/
+              svalue_open p = svopen C (svalue (onechains (S a)))).
     { intros p Hp.
       destruct (selections_ones_one (S a) C p Hp)
         as [[Hf [a' [Ha Hs]]] | [Hf Hs]].
@@ -562,21 +377,22 @@ Proof.
         injection Ha as Ha; subst a'.
         rewrite svopen_chain1; reflexivity.
       - right; unfold svalue_open; rewrite Hf, Hs; reflexivity. }
-    assert (Hin1 : In (Chain 1, ones a ++ [C])
-                      (selections (ones (S a) ++ [C])))
-      by (rewrite ones_S; simpl app; simpl selections; left; reflexivity).
-    assert (HinC : In (C, ones (S a)) (selections (ones (S a) ++ [C])))
+    assert (Hin1 : In (Chain 1, onechains a ++ [C])
+                      (selections (onechains (S a) ++ [C])))
+      by (rewrite onechains_S; simpl app; simpl selections; left; reflexivity).
+    assert (HinC : In (C, onechains (S a))
+                      (selections (onechains (S a) ++ [C])))
       by apply In_selections_ones_one.
-    rewrite (svalue_two_options (ones (S a) ++ [C])
-               (Z.abs (svalue (ones a ++ [C]) - 1))
-               (svopen C (svalue (ones (S a)))));
+    rewrite (svalue_two_options (onechains (S a) ++ [C])
+               (Z.abs (svalue (onechains a ++ [C]) - 1))
+               (svopen C (svalue (onechains (S a)))));
       [| apply ones_one_nonnil | exact Hopt | | ].
     + rewrite dec1_S, IH.
       pose proof (open_long_not_better a C Hc) as Hle.
       rewrite IH in Hle; lia.
-    + exists (Chain 1, ones a ++ [C]); split; [exact Hin1|].
+    + exists (Chain 1, onechains a ++ [C]); split; [exact Hin1|].
       unfold svalue_open; cbn [fst snd]; rewrite svopen_chain1; reflexivity.
-    + exists (C, ones (S a)); split; [exact HinC | reflexivity].
+    + exists (C, onechains (S a)); split; [exact HinC | reflexivity].
 Qed.
 
 (** The two regimes read off the iteration: the component is worn down one box
@@ -584,7 +400,7 @@ Qed.
 Corollary svalue_ones_one_le :
   forall a C,
     (2 <= csize C)%nat -> (a <= csize C)%nat ->
-    svalue (ones a ++ [C]) = Z.of_nat (csize C) - Z.of_nat a.
+    svalue (onechains a ++ [C]) = Z.of_nat (csize C) - Z.of_nat a.
 Proof.
   intros a C Hc Ha; rewrite (svalue_ones_one a C Hc).
   assert (Haux : forall k w, 0 <= Z.of_nat k <= w -> dec1 k w = w - Z.of_nat k).
@@ -598,13 +414,13 @@ Qed.
 
 (** And a one-box chain really does change the value: beside a three-chain the
     capped theory reports two where the uncapped one reports nothing. *)
-Example svalue_one_three : svalue (ones 1 ++ [Chain 3]) = 2.
+Example svalue_one_three : svalue (onechains 1 ++ [Chain 3]) = 2.
 Proof. reflexivity. Qed.
 
-Example svalue_two_ones_three : svalue (ones 2 ++ [Chain 3]) = 1.
+Example svalue_two_ones_three : svalue (onechains 2 ++ [Chain 3]) = 1.
 Proof. reflexivity. Qed.
 
-Example svalue_four_ones_three : svalue (ones 4 ++ [Chain 3]) = 1.
+Example svalue_four_ones_three : svalue (onechains 4 ++ [Chain 3]) = 1.
 Proof. reflexivity. Qed.
 
 (** ****************************************************************** *)
@@ -642,12 +458,6 @@ Proof.
   intros n H; unfold smallb in H; apply andb_true_iff in H.
   destruct H as [H1 H2]; apply Nat.leb_le in H1; apply Nat.leb_le in H2; lia.
 Qed.
-
-Lemma shortb_loop : forall n, shortb (Loop n) = false.
-Proof. reflexivity. Qed.
-
-Lemma smallb_loop : forall n, smallb (Loop n) = false.
-Proof. reflexivity. Qed.
 
 Lemma shortb_smallb : forall C, shortb C = true -> smallb C = true.
 Proof.
@@ -753,15 +563,6 @@ Proof.
       [rewrite Z.max_l in Hle by lia | rewrite Z.max_r in Hle by lia]; lia.
 Qed.
 
-(** A position of short chains is one of small chains. *)
-Lemma forallb_short_small :
-  forall H, forallb shortb H = true -> forallb smallb H = true.
-Proof.
-  induction H as [|C H IH]; intros Hf; [reflexivity|].
-  simpl in Hf |- *; apply andb_true_iff in Hf; destruct Hf as [HC HH].
-  rewrite (shortb_smallb C HC); simpl; apply IH; exact HH.
-Qed.
-
 (** ****************************************************************** *)
 (** The terminal bonus for the capped recursion.
 
@@ -809,12 +610,6 @@ Lemma maxsh_cons :
   forall C G, maxsh (C :: G) = Z.max (2 * Z.of_nat (shand C)) (maxsh G).
 Proof. reflexivity. Qed.
 
-Lemma maxsh_nonneg : forall G, 0 <= maxsh G.
-Proof.
-  induction G as [|C G IH]; [reflexivity|].
-  rewrite maxsh_cons; lia.
-Qed.
-
 Lemma maxsh_perm : forall G H, Permutation G H -> maxsh G = maxsh H.
 Proof.
   intros G H HP; induction HP.
@@ -849,12 +644,6 @@ Proof.
   destruct (existsb longchain_b G); [lia|].
   destruct (existsb is_3chain_b G); lia.
 Qed.
-
-Lemma stb_le_cap : forall G, stb G <= cap G.
-Proof. intros G; unfold stb; apply Z.le_min_r. Qed.
-
-Lemma stb_le_maxsh : forall G, stb G <= maxsh G.
-Proof. intros G; unfold stb; apply Z.le_min_l. Qed.
 
 (** * On wellformed positions this is Berlekamp's bonus *)
 
@@ -1047,9 +836,11 @@ Qed.
 (** ****************************************************************** *)
 (** Berlekamp's control bound for the capped recursion, with the true bonus.
 
-    [scval_le_svalue] proves the bound with the weakest terminal bonus that
-    survives an induction: the smallest handout the position holds. [stb] is
-    the true one, and [stb_eq_tb] shows it is Berlekamp's on every wellformed
+    [DotsAndBoxes.cval_le_value] is Berlekamp's bound: the controller who never
+    gives up control banks the controlled value. It is stated for [wf]
+    positions, and its terminal bonus reads the component names, which is what
+    fails once a chain with no handout to spare is admitted. [stb] is the
+    replacement and [stb_eq_tb] shows it is Berlekamp's on every wellformed
     position. This section proves the bound for it.
 
     The induction splits on whether removing the opened component can raise
@@ -1320,7 +1111,7 @@ Qed.
 
     [svalue_step_eq] is the step the agreement rests on: an opening that leaves
     the terminal bonus alone, and leaves behind at least the handout it gives
-    away, realises the controlled value exactly. [svalue_cval_ge2_wf] transfers
+    away, realises the controlled value exactly. [svalue_scval2_ge2_wf] transfers
     Berlekamp and Scott through [scval2_eq_cval], so only positions
     holding a chain of one or two boxes remain. *)
 
@@ -1331,13 +1122,6 @@ Lemma svopen_decline :
 Proof.
   intros C w H; unfold svopen, sweight.
   rewrite Z.max_r by lia; lia.
-Qed.
-
-Lemma svopen_take :
-  forall C w, w <= Z.of_nat (shand C) -> svopen C w = Z.of_nat (csize C) - w.
-Proof.
-  intros C w H; unfold svopen.
-  rewrite Z.max_l by lia; lia.
 Qed.
 
 (** * The step *)
@@ -1365,21 +1149,6 @@ Proof.
   - apply scval2_le_svalue; [exact Hw | exact HNil].
 Qed.
 
-(** The same step with the recursive value supplied by the bound rather than
-    assumed, which is how it is used once the threshold is met. *)
-Corollary svalue_step_of_ge2 :
-  forall G p,
-    swf G -> In p (selections G) ->
-    stb (fst p :: snd p) = stb (snd p) ->
-    Z.of_nat (shand (fst p)) <= scval2 (snd p) ->
-    2 <= scval2 (snd p) ->
-    svalue (snd p) = scval2 (snd p) ->
-    svalue G = scval2 G.
-Proof.
-  intros G p Hw Hp Htb Hh _ Hrec.
-  exact (svalue_step_eq G p Hw Hp Htb Hh Hrec).
-Qed.
-
 (** * Berlekamp and Scott, transferred *)
 
 (** On wellformed positions the capped theory is the original one, so the
@@ -1394,15 +1163,6 @@ Proof.
 Qed.
 
 (** * Short chains are never large *)
-
-(** A chain of one or two boxes never repays twice its handout, so it is never
-    a large component. *)
-Lemma shortb_not_big : forall C, shortb C = true -> ~ big C.
-Proof.
-  intros [n | n] H; [|discriminate].
-  pose proof (shortb_chain n H) as Hb.
-  unfold big, hand; cbn [csize]; lia.
-Qed.
 
 (** A short chain leaves the cap alone, being neither a long chain nor a
     three-chain. *)
@@ -1655,49 +1415,6 @@ Qed.
     the terminal bonus is even, which is what puts the parity into the
     controlled value. *)
 
-(** * The capped opening carries the parity of what it opens *)
-
-Lemma svopen_parity :
-  forall C w,
-    Z.even (svopen C w) = Z.even (Z.of_nat (csize C) + w).
-Proof.
-  intros C w; unfold svopen.
-  destruct (Z.le_ge_cases w (Z.of_nat (shand C))) as [H | H].
-  - rewrite Z.max_l by lia.
-    rewrite Z.even_sub, Z.even_add.
-    destruct (Z.even (Z.of_nat (csize C))), (Z.even w); reflexivity.
-  - rewrite Z.max_r by lia.
-    replace (Z.of_nat (csize C) - 2 * Z.of_nat (shand C) + w)
-      with ((Z.of_nat (csize C) + w) - 2 * Z.of_nat (shand C)) by lia.
-    rewrite Z.even_sub.
-    replace (Z.even (2 * Z.of_nat (shand C))) with true
-      by (rewrite Z.even_mul; reflexivity).
-    destruct (Z.even (Z.of_nat (csize C) + w)); reflexivity.
-Qed.
-
-(** * The capped value carries the parity of the board *)
-
-Theorem svalue_parity :
-  forall G, Z.even (svalue G) = Z.even (Z.of_nat (size G)).
-Proof.
-  assert (Haux : forall n G, (length G <= n)%nat ->
-            Z.even (svalue G) = Z.even (Z.of_nat (size G))).
-  { induction n as [|n IH]; intros G Hn.
-    - assert (HG : G = []) by (destruct G; simpl in Hn; [reflexivity | lia]).
-      subst G; reflexivity.
-    - destruct (list_eq_dec comp_eq_dec G []) as [-> | HNil]; [reflexivity|].
-      destruct (svalue_attained G HNil) as [p [Hp Hval]].
-      rewrite Hval; unfold svalue_open.
-      rewrite svopen_parity.
-      pose proof (selections_size G p Hp) as Hsz.
-      pose proof (selections_length G p Hp) as Hlen.
-      rewrite Z.even_add.
-      rewrite (IH (snd p)) by lia.
-      rewrite <- Z.even_add.
-      rewrite <- Nat2Z.inj_add, Hsz; reflexivity. }
-  intros G; apply (Haux (length G)); lia.
-Qed.
-
 (** * The terminal bonus is even *)
 
 Lemma maxsh_even : forall G, Z.even (maxsh G) = true.
@@ -1891,9 +1608,6 @@ Proof.
   destruct (a =? 0)%nat, (Nat.odd b), (Nat.odd a); lia.
 Qed.
 
-Lemma odd_S : forall k, Nat.odd (S k) = negb (Nat.odd k).
-Proof. intros k; rewrite Nat.odd_succ, Nat.negb_odd; reflexivity. Qed.
-
 (** Opening a one-box chain realises the closed form exactly. *)
 Lemma cand1_eq :
   forall a b, (1 <= a)%nat ->
@@ -2058,10 +1772,6 @@ Proof.
     rewrite Z.max_r by lia; lia.
 Qed.
 
-Lemma svopen_short_alt :
-  forall C x, shortb C = true -> svopen C x = Z.abs (x - Z.of_nat (csize C)).
-Proof. intros C x H; apply svopen_short; exact H. Qed.
-
 (** A short chain hands over everything it has. *)
 Lemma shand_short_eq :
   forall C, shortb C = true -> shand C = csize C.
@@ -2118,8 +1828,8 @@ Theorem svopen_exchange :
     svopen S (svopen L y) <= svopen L (svopen S y).
 Proof.
   intros S L y HS HL HwL Hy.
-  rewrite (svopen_alt L y), (svopen_short_alt S _ HS).
-  rewrite (svopen_short_alt S y HS), (svopen_alt L _).
+  rewrite (svopen_alt L y), (svopen_short S _ HS).
+  rewrite (svopen_short S y HS), (svopen_alt L _).
   rewrite <- (shand_short_eq S HS).
   pose proof (shand_short_le2 S HS) as Hs2.
   pose proof (shand_long_ge2 L HwL HL) as Hk2.
@@ -2166,15 +1876,6 @@ Proof.
     apply existsb_exists in Hc; destruct Hc as [D [HD HDs]].
     apply filter_In in HD; destruct HD as [_ Hn].
     rewrite HDs in Hn; discriminate.
-Qed.
-
-Lemma longpart_all_long :
-  forall G, existsb shortb (longpart G) = false.
-Proof.
-  intros G; apply not_true_is_false; intros Hc.
-  apply existsb_exists in Hc; destruct Hc as [D [HD HDs]].
-  apply filter_In in HD; destruct HD as [_ Hn].
-  rewrite HDs in Hn; discriminate.
 Qed.
 
 (** * The fold that puts the short chains back *)
@@ -2625,18 +2326,6 @@ Proof.
   intros a b w Ha Hw; exact (Haux (a + b)%nat a b w (Nat.le_refl _) Ha Hw).
 Qed.
 
-(** * What the one-box fold gives the decomposition *)
-
-Corollary g_a0_mono :
-  forall a x y,
-    0 <= x -> x <= y -> Z.even x = Z.even y ->
-    g a 0 x <= g a 0 y.
-Proof.
-  intros a x y Hx Hxy Hp.
-  rewrite (g_a0_closed a x Hx), (g_a0_closed a y) by lia.
-  apply h1_mono; lia || assumption.
-Qed.
-
 (** ****************************************************************** *)
 (** Pushing a long opening past the short-chain fold.
 
@@ -2651,18 +2340,6 @@ Qed.
 
     With [g_collapse] this covers every position holding a one-box
     chain, since there the two-box chains are already two one-box steps. *)
-
-(** * Openings leave nothing negative behind *)
-
-Lemma svopen_nonneg : forall C y, 0 <= y -> 0 <= svopen C y.
-Proof.
-  intros C y Hy; rewrite svopen_alt.
-  pose proof (shand_le_csize C) as H.
-  pose proof (Z.abs_nonneg (y - Z.of_nat (shand C))) as Ha; lia.
-Qed.
-
-Lemma svopen_chain1 : forall z, svopen (Chain 1) z = Z.abs (z - 1).
-Proof. intros z; rewrite (svopen_short (Chain 1) z) by reflexivity; reflexivity. Qed.
 
 (** * The one-box fold carries a parity *)
 
@@ -2715,7 +2392,7 @@ Theorem h1_commute :
     h1 (Z.of_nat n) (svopen C x) <= svopen C (h1 (Z.of_nat n) x).
 Proof.
   intros C n x HC HwC Hx.
-  assert (Hs : 0 <= svopen C x) by (apply svopen_nonneg; exact Hx).
+  assert (Hs : 0 <= svopen C x) by apply svopen_nonneg.
   induction n as [|n IH].
   - cbn [Z.of_nat]; rewrite (h1_zero (svopen C x) Hs), (h1_zero x Hx).
     apply Z.le_refl.
@@ -2766,7 +2443,7 @@ Proof.
   intros C b x HC HwC Hx.
   pose proof (shand_long_ge2 C HwC HC) as Hk.
   pose proof (shand_le_csize C) as Hle.
-  pose proof (svopen_nonneg C x Hx) as HA0.
+  pose proof (svopen_nonneg C x) as HA0.
   pose proof (g_nonneg 0 b x Hx) as Hq0.
   destruct (Z.le_gt_cases (2 * Z.of_nat b) (svopen C x)) as [Hbig | Hsmall].
   - (* the fold has run out on the opened side *)
@@ -2784,7 +2461,7 @@ Proof.
   - (* the fold has not run out: its value is at most two *)
     assert (Hsm : g 0 b (svopen C x) <= 2) by (apply g_0b_small; lia).
     assert (Hsn : 0 <= g 0 b (svopen C x)) by (apply g_nonneg; lia).
-    assert (Hrhs0 : 0 <= svopen C (g 0 b x)) by (apply svopen_nonneg; lia).
+    assert (Hrhs0 : 0 <= svopen C (g 0 b x)) by apply svopen_nonneg.
     assert (Hpar : Z.even (g 0 b (svopen C x)) = Z.even (svopen C (g 0 b x))).
     { assert (Q1 : Z.even (g 0 b (svopen C x)) = Z.even (svopen C x))
         by (rewrite (g_parity 0 b (svopen C x)); f_equal; cbn [Z.of_nat]; lia).
@@ -2843,7 +2520,7 @@ Corollary g_commute_a1 :
     g a b (svopen C x) <= svopen C (g a b x).
 Proof.
   intros C a b x HC HwC Ha Hx.
-  assert (Hs : 0 <= svopen C x) by (apply svopen_nonneg; exact Hx).
+  assert (Hs : 0 <= svopen C x) by apply svopen_nonneg.
   rewrite (g_collapse a b (svopen C x) Ha Hs).
   rewrite (g_collapse a b x Ha Hx).
   assert (Hm : Z.of_nat a + 2 * Z.of_nat b = Z.of_nat (a + 2 * b)) by lia.
@@ -3008,19 +2685,6 @@ Proof.
   - apply (Haux (length H)); [lia | apply Permutation_sym; exact Hp].
 Qed.
 
-(** And the form the decomposition needs: removing a component from a position
-    cannot raise its value by more than the component's size. *)
-Corollary svalue_remove_ge :
-  forall G C rest,
-    In (C, rest) (selections G) ->
-    svalue rest - Z.of_nat (csize C) <= svalue G.
-Proof.
-  intros G C rest Hsel.
-  pose proof (selections_perm G (C, rest) Hsel) as Hp; simpl in Hp.
-  pose proof (svalue_add_ge C rest) as H.
-  rewrite <- (svalue_perm _ _ Hp); exact H.
-Qed.
-
 (** ****************************************************************** *)
 (** The long opening never beats the fold.
 
@@ -3156,7 +2820,7 @@ Proof.
       assert (Hsm : g 0 b w <= 2) by (apply g_0b_small; lia).
       assert (Hsn : 0 <= g 0 b w) by (apply g_nonneg; lia).
       assert (Hq0 : 0 <= g 0 b x) by (apply g_nonneg; lia).
-      assert (Hrhs0 : 0 <= svopen C (g 0 b x)) by (apply svopen_nonneg; lia).
+      assert (Hrhs0 : 0 <= svopen C (g 0 b x)) by apply svopen_nonneg.
       assert (Hp2 : Z.even (g 0 b w) = Z.even (svopen C (g 0 b x))).
       { assert (Q1 : Z.even (g 0 b w) = Z.even w)
           by (rewrite (g_parity 0 b w); f_equal; cbn [Z.of_nat]; lia).
@@ -3195,7 +2859,7 @@ Proof.
           by (intros E; rewrite E in Ho; discriminate).
         lia.
   - (* a one-box chain is present: the fold collapses and is monotone *)
-    assert (Hs : 0 <= svopen C x) by (apply svopen_nonneg; exact Hx).
+    assert (Hs : 0 <= svopen C x) by apply svopen_nonneg.
     assert (Hmono : g (S a') b w <= g (S a') b (svopen C x)).
     { rewrite (g_collapse (S a') b w) by lia.
       rewrite (g_collapse (S a') b (svopen C x)) by lia.

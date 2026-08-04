@@ -647,8 +647,8 @@ End Board.
     Zermelo theorem then says every margin is decided: either the first
     player forces it or the second player forces that it is missed.
     [forces_margin_mono] is monotone in [k], [forces_margin_win] identifies
-    margin one with winning, and [margin_best] extracts the largest margin
-    the first player can force on a board of known size. *)
+    margin one with winning, and [margin_best_exists] extracts the largest
+    margin the first player can force on a board of known size. *)
 
 Import ListNotations.
 

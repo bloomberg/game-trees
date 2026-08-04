@@ -25,11 +25,14 @@
     check is redundant wherever one of them fires.
 
     Outside them the standard move applies. [standard_move_no3_complete] proves
-    it optimal on every position holding no three-chain, with no hypothesis
-    beyond wellformedness. Where a three-chain is present the block reduces by
-    [standard_move_reduces] to an identity between the closed form at the
-    position and the opening of the closed form at what the move leaves behind,
-    and [allcock_move_optimal] is the strategy stated against that identity. *)
+    it optimal on every position holding no three-chain, and
+    [standard_move_3chain_complete] on every position holding one, by the branch
+    of [DotsAndBoxes.v41] the position falls into.
+
+    [allcock_theorem_1_1] is the whole of Theorem 1.1: on every nonempty
+    wellformed position the strategy names an opening, that opening attains the
+    value, and no opening beats it. [allcock_okb_complete] is the corollary that
+    the computational check the original development relies on never fails. *)
 
 From Stdlib Require Import List.
 From Stdlib Require Import PeanoNat.
@@ -161,15 +164,6 @@ Proof.
   destruct n as [|[|[|[|n]]]]; try discriminate; reflexivity.
 Qed.
 
-Lemma count3_pos_In : forall G, (1 <= count3 G)%nat -> In (Chain 3) G.
-Proof.
-  intros G H; unfold count3 in H.
-  destruct (filter is_3chain_b G) as [|C l] eqn:E; simpl in H; [lia|].
-  assert (Hin : In C (filter is_3chain_b G)) by (rewrite E; left; reflexivity).
-  apply filter_In in Hin; destruct Hin as [HinG Hf].
-  rewrite (is_3chain_b_eq C Hf) in HinG; exact HinG.
-Qed.
-
 (** The standard move opens a three-chain whenever one is present, and it is
     the shortest such, hence a three-chain itself. *)
 Theorem standard_move_three :
@@ -280,52 +274,15 @@ Proof.
     [apply tb_cons_3chain_with3; exact H3 | exact Hc].
 Qed.
 
-(** So on a position of two or more three-chains whose controlled value stays
-    at two after one is removed, the standard move is provably optimal. *)
-Corollary standard_move_optimal_two_threes :
-  forall G rest,
-    wf G -> In (Chain 3, rest) (selections G) ->
-    (1 <= count3 rest)%nat ->
-    2 <= cval rest ->
-    value G = value_open (Chain 3, rest).
-Proof.
-  intros G rest Hw Hsel H3 Hc.
-  assert (Hex : existsb is_3chain_b rest = true)
-    by (apply count3_pos_iff; lia).
-  destruct (open_3chain_optimal G rest Hw Hsel Hex Hc) as [Hop Hmin].
-  assert (HNil : G <> []) by (intros ->; simpl in Hsel; destruct Hsel).
-  apply (proj2 (opener_optimal_iff G (Chain 3, rest) HNil Hsel)); exact Hmin.
-Qed.
-
 (** ****************************************************************** *)
 (** Positions of three-chains and four-loops, in canonical order.
 
     These are the positions Allcock's case (ii) leaves over, and they are
-    determined by their two counts: [only34_perm] sorts any of them into
-    three-chains followed by four-loops.
+    determined by their two counts: [DotsAndBoxes.perm_mix_of_only34] sorts any
+    of them into three-chains followed by four-loops.
 
-    [value_perm] is what makes that useful. It follows from
-    [ShortChains.svalue_perm] through [DotsAndBoxes.svalue_wf], since the capped
-    value agrees with the original on wellformed positions. The original
-    development does not carry it. *)
-
-(** * Wellformedness and the value are permutation invariant *)
-
-Lemma wf_perm : forall G H, Permutation G H -> wf G -> wf H.
-Proof.
-  intros G H Hp Hw; unfold wf in *; rewrite Forall_forall in *.
-  intros C HC; apply Hw.
-  apply (Permutation_in _ (Permutation_sym Hp)); exact HC.
-Qed.
-
-Theorem value_perm :
-  forall G H, wf G -> Permutation G H -> value G = value H.
-Proof.
-  intros G H Hw Hp.
-  assert (HwH : wf H) by (apply (wf_perm G H Hp Hw)).
-  rewrite <- (svalue_wf G Hw), <- (svalue_wf H HwH).
-  apply svalue_perm; exact Hp.
-Qed.
+    [DotsAndBoxes.value_perm] and [DotsAndBoxes.value_mix] then read such a
+    position off its counts alone, whatever order it is written in. *)
 
 (** * Sorting a position of three-chains and four-loops *)
 
@@ -347,7 +304,7 @@ Corollary only34_value :
     value G = v36 (count3 G) (count4 G).
 Proof.
   intros G Hw H34.
-  rewrite (value_perm G (mix (count3 G) (count4 G)) Hw
+  rewrite (value_perm G (mix (count3 G) (count4 G))
              (perm_mix_of_only34 G H34)).
   apply value_mix.
 Qed.
@@ -543,7 +500,7 @@ Qed.
     when the controlled value is at least two. There the value is the
     controlled value, and opening a loop leaves a position whose controlled
     value is higher by the loop's own deficit, so the comparison reduces to
-    [vopen_loop_eq]: taking the loop is worth exactly the controlled value
+    [vopen_loop_eq']: taking the loop is worth exactly the controlled value
     provided the loop is not too long.
 
     [cbase_loops_lower] is what supplies that proviso. A shortest loop of
@@ -551,21 +508,7 @@ Qed.
     base is at least the one loop's own; a shorter one is covered by the
     case's own bound directly. *)
 
-(** * Opening a loop when the value is the controlled value *)
-
-Lemma vopen_loop_eq :
-  forall m c,
-    Z.of_nat m - 4 <= c ->
-    vopen (Loop m) (c - Z.of_nat m + 8) = c.
-Proof.
-  intros m c H; rewrite vopen_max; cbn [csize hand].
-  rewrite Z.max_r by lia; lia.
-Qed.
-
 (** * A shortest loop of eight or more forces a nonnegative base *)
-
-Lemma weight_loop : forall m, weight (Loop m) = Z.of_nat m - 8.
-Proof. intros m; unfold weight; cbn [csize hand]; lia. Qed.
 
 Lemma cbase_loops_nonneg :
   forall L,
@@ -576,7 +519,7 @@ Proof.
   induction L as [|C L IH]; intros HL Hm; [reflexivity|].
   simpl in HL; apply andb_true_iff in HL; destruct HL as [HC HLs].
   destruct C as [n | n]; [discriminate|].
-  rewrite cbase_cons, weight_loop.
+  rewrite cbase_cons, weight_loop_len.
   assert (Hn : (8 <= n)%nat).
   { pose proof (Hm (Loop n) (or_introl eq_refl)) as H; cbn [csize] in H;
       exact H. }
@@ -595,7 +538,7 @@ Proof.
   intros [|C L] m HL Hm H8 HNil; [contradiction|].
   simpl in HL; apply andb_true_iff in HL; destruct HL as [HC HLs].
   destruct C as [n | n]; [discriminate|].
-  rewrite cbase_cons, weight_loop.
+  rewrite cbase_cons, weight_loop_len.
   assert (Hn : (m <= n)%nat).
   { pose proof (Hm (Loop n) (or_introl eq_refl)) as H; cbn [csize] in H;
       exact H. }
@@ -794,7 +737,7 @@ Proof.
       by (rewrite (cbase_perm G (fst p :: snd p) (Permutation_sym Hperm));
           reflexivity).
     assert (Ew : weight (fst p) = Z.of_nat (csize (fst p)) - 8)
-      by (destruct (fst p) as [n | n]; [discriminate Hloop | apply weight_loop]).
+      by (destruct (fst p) as [n | n]; [discriminate Hloop | apply weight_loop_len]).
     unfold cval in *; lia. }
   assert (Hval : value G = value_open p).
   { unfold value_open.
@@ -858,7 +801,7 @@ Qed.
     [allcock_case_ii_optimal] is the two composed.
 
     The positions the composition misses are exactly those made of
-    three-chains and four-loops. [case_ii_only34_shape] pins them down: the
+    three-chains and four-loops. [case_ii_only34_counts] pins them down: the
     case's own bounds leave three, up to order. *)
 
 (** * The strategy opens the shortest loop in this case *)
@@ -1202,21 +1145,6 @@ Qed.
     [value_of_min_option] is the small step the criterion leaves out: a legal
     opening that no other opening beats is the value. *)
 
-(** * A minimal opening is the value *)
-
-Lemma value_of_min_option :
-  forall G p,
-    In p (selections G) ->
-    (forall q, In q (selections G) -> value_open p <= value_open q) ->
-    value G = value_open p.
-Proof.
-  intros G p Hp Hmin.
-  apply Z.le_antisymm; [apply value_le_open; exact Hp|].
-  assert (HNil : G <> []) by (intros ->; simpl in Hp; destruct Hp).
-  destruct (value_attained G HNil) as [q [Hq Hv]].
-  rewrite Hv; apply Hmin; exact Hq.
-Qed.
-
 (** * The criterion, applied to the standard move *)
 
 Theorem standard_move_optimal_of_criterion :
@@ -1253,33 +1181,6 @@ Proof.
   - rewrite Hp3; apply tb_cons_3chain_with3; exact H3r.
   - rewrite Hp3; cbn [hand]; lia.
   - exact Hc.
-Qed.
-
-(** * The threshold, from the position rather than the remainder *)
-
-(** Removing a three-chain raises the controlled value by exactly one, since
-    the chain weighs minus one and the bonus is unmoved. So the remainder
-    clears the threshold as soon as the position itself reaches one. *)
-Theorem standard_move_3chain_ge1 :
-  forall G p,
-    wf G -> (1 <= count3 G)%nat -> standard_move G = Some p ->
-    existsb is_3chain_b (snd p) = true ->
-    1 <= cval G ->
-    value G = value_open p /\
-    (forall q, In q (selections G) -> value_open p <= value_open q).
-Proof.
-  intros G p Hw H3 Hm H3r Hcv.
-  assert (Hp3 : fst p = Chain 3)
-    by (apply (standard_move_three G p H3); exact Hm).
-  assert (Hin : In p (selections G)) by (apply standard_move_In; exact Hm).
-  pose proof (selections_perm G p Hin) as Hperm.
-  assert (Htb : tb (fst p :: snd p) = tb (snd p))
-    by (rewrite Hp3; apply tb_cons_3chain_with3; exact H3r).
-  assert (Hcr : cval (snd p) = cval G + 1).
-  { rewrite <- (cval_perm _ _ Hperm).
-    unfold cval; rewrite cbase_cons, Htb, Hp3, weight_chain; cbn [Z.of_nat].
-    unfold cval; lia. }
-  apply (standard_move_3chain_optimal G p Hw H3 Hm H3r); lia.
 Qed.
 
 (** * When opening a three-chain leaves the bonus alone *)
@@ -1359,19 +1260,6 @@ Proof.
   destruct (filter is_3chain_b G); [destruct Hin | simpl in H; lia].
 Qed.
 
-Lemma standard_move_loop :
-  forall G p,
-    count3 G = 0%nat -> standard_move G = Some p ->
-    is_loop_b (fst p) = true \/ shortest_of is_loop_b G = None.
-Proof.
-  intros G p H3 Hm; unfold standard_move in Hm.
-  rewrite (shortest_of_none_of_no_witness is_3chain_b G
-             (no_3chain_of_count0 G H3)) in Hm.
-  destruct (shortest_of is_loop_b G) as [q|] eqn:EL; [|right; reflexivity].
-  injection Hm as <-; left.
-  destruct (shortest_of_min is_loop_b G q EL) as [Hq _]; exact Hq.
-Qed.
-
 (** * The standard move on a loop *)
 
 (** With no three-chain anywhere the bonus is unmoved, so only the remainder's
@@ -1398,7 +1286,7 @@ Proof.
   assert (Hcr : cval (snd p) = cval G - Z.of_nat (csize (fst p)) + 8).
   { rewrite <- (cval_perm _ _ Hperm).
     assert (Ew : weight (fst p) = Z.of_nat (csize (fst p)) - 8)
-      by (destruct (fst p) as [n | n]; [discriminate Hloop | apply weight_loop]).
+      by (destruct (fst p) as [n | n]; [discriminate Hloop | apply weight_loop_len]).
     unfold cval; rewrite cbase_cons, Htb, Ew; unfold cval; lia. }
   apply (standard_move_optimal_of_criterion G p Hw Hm Htb).
   - destruct (fst p) as [n | n]; [discriminate Hloop|].
@@ -1621,7 +1509,7 @@ Qed.
 
 (** * Opening a six-loop *)
 
-Lemma vopen_loop6 : forall w, w <= 4 -> vopen (Loop 6) w = 6 - w.
+Lemma vopen_loop6_le4 : forall w, w <= 4 -> vopen (Loop 6) w = 6 - w.
 Proof.
   intros w H; rewrite vopen_max; cbn [csize hand].
   rewrite Z.max_l by lia; lia.
@@ -1689,7 +1577,7 @@ Proof.
   assert (Hval : value G = value_open p).
   { unfold value_open; rewrite Hp6 at 1; rewrite HvR.
     pose proof (w4z_range (Z.of_nat (size (snd p)))) as Hr.
-    rewrite vopen_loop6 by lia.
+    rewrite vopen_loop6_le4 by lia.
     rewrite HvG.
     pose proof (w4z_step6 (Z.of_nat (size G))) as Hs.
     assert (E : Z.of_nat (size G) - 6 = Z.of_nat (size (snd p))) by lia.
@@ -2241,11 +2129,11 @@ Proof.
         destruct (Nat.eq_dec n 3) as [He | Hne];
           [rewrite He in Hn3; cbn in Hn3; discriminate Hn3 | lia].
       - pose proof (Hmin (Loop n) HD eq_refl) as Hm8.
-        rewrite weight_loop; cbn [csize] in *; lia. }
+        rewrite weight_loop_len; cbn [csize] in *; lia. }
     pose proof (cbase_ge_member G (fst p) HinC Hwt) as Hcb.
     pose proof (tb_pos G HNil) as Htb.
     assert (Hwp : weight (fst p) = Z.of_nat (csize (fst p)) - 8).
-    { destruct (fst p) as [n | n]; [discriminate Hloop | apply weight_loop]. }
+    { destruct (fst p) as [n | n]; [discriminate Hloop | apply weight_loop_len]. }
     unfold cval in Hbad; lia. }
   assert (Hcase : csize (fst p) = 4%nat \/ csize (fst p) = 6%nat).
   { apply Nat.even_spec in Heven; destruct Heven as [k Hk]; lia. }
@@ -2450,44 +2338,684 @@ Lemma allcock_move_standard :
     allcock_move G = standard_move G.
 Proof. intros G H; unfold allcock_move; rewrite H; reflexivity. Qed.
 
-(** There the strategy plays the standard move, and [standard_move_reduces]
-    turns its optimality into an identity between the closed form at the
-    position and at what the move leaves. A position of one component needs
-    nothing at all. *)
-Theorem allcock_standard_optimal :
-  forall G p,
-    wf G -> (case_i G || case_ii G || case_iii G)%bool = false ->
-    allcock_move G = Some p ->
-    (snd p = [] \/ v41 G = vopen (fst p) (v41 (snd p))) ->
-    value G = value_open p /\
-    (forall q, In q (selections G) -> value_open p <= value_open q).
+(** There the strategy plays the standard move. [standard_move_no3_complete]
+    settles every position with no three-chain, and the block where one is
+    present is settled below by [standard_move_3chain_complete]. *)
+
+(** ****************************************************************** *)
+(** The closed forms against the recursion.
+
+    [value_complete] and [ShortChains.svalue_closed] are proved, so agreement
+    with the recursion is a theorem rather than a hope. What computation adds is
+    a check on the definitions themselves: [cval], [tb] and the residue tables
+    are transcriptions of Berlekamp and Scott's and Allcock's, and a
+    transcription error would leave every proof intact and every statement
+    wrong.
+
+    [v41_agrees_with_recursion] evaluates both sides of Theorem 4.1 on a family
+    of positions, [sv_agrees_with_recursion] does the same for the capped form,
+    and [allcock_ok_on_sweep] runs the opener strategy against the value on the
+    same family. Each is closed by [vm_compute], so the checks are re-run
+    whenever the file is built. *)
+
+(** * Enumerating a family of positions *)
+
+Fixpoint tuples (n : nat) (l : list comp) : list position :=
+  match n with
+  | O => [[]]
+  | S k => flat_map (fun C => map (fun G => C :: G) (tuples k l)) l
+  end.
+
+Definition long_pool : list comp :=
+  [Chain 3; Chain 4; Chain 5; Chain 6; Loop 4; Loop 6; Loop 8].
+
+Definition short_pool : list comp :=
+  [Chain 1; Chain 2; Chain 3; Chain 4; Loop 4; Loop 6].
+
+(** Every ordered tuple of at most five components drawn from the pool: 19607
+    positions for the wellformed sweep, 9330 for the capped one. Writing them
+    as tuples rather than as multisets is deliberate, since the redundant
+    orderings exercise the permutation invariance as well. *)
+Definition long_sweep : list position :=
+  tuples 1 long_pool ++ tuples 2 long_pool ++ tuples 3 long_pool
+  ++ tuples 4 long_pool ++ tuples 5 long_pool.
+
+Definition short_sweep : list position :=
+  tuples 1 short_pool ++ tuples 2 short_pool ++ tuples 3 short_pool
+  ++ tuples 4 short_pool ++ tuples 5 short_pool.
+
+(** Every position the pools generate is wellformed, so the sweep really does
+    exercise the hypotheses the theorems carry. *)
+Lemma long_pool_wf : forall C, In C long_pool -> wf_comp C.
 Proof.
-  intros G p Hw Hd Hm Hcase.
-  rewrite (allcock_move_standard G Hd) in Hm.
-  destruct (list_eq_dec comp_eq_dec (snd p) []) as [Hnil | Hnn].
-  - apply (standard_move_singleton G p Hm Hnil).
-  - destruct Hcase as [Hnil | Hid]; [contradiction|].
-    apply (standard_move_reduces G p Hw Hm Hnn Hid).
+  intros C H; cbn [In long_pool] in H.
+  destruct H as [<- | [<- | [<- | [<- | [<- | [<- | [<- | []]]]]]]];
+    cbn [wf_comp]; (lia || (split; [lia | reflexivity])).
 Qed.
 
-(** * The strategy, in one statement *)
+Lemma tuples_wf :
+  forall n l, (forall C, In C l -> wf_comp C) ->
+    forall G, In G (tuples n l) -> wf G.
+Proof.
+  induction n as [|n IH]; intros l Hl G HG.
+  - destruct HG as [<- | []]; constructor.
+  - apply in_flat_map in HG; destruct HG as [C [HC HG]].
+    apply in_map_iff in HG; destruct HG as [H [<- HH]].
+    constructor; [apply Hl; exact HC | apply (IH l Hl); exact HH].
+Qed.
 
-(** Allcock's opener is optimal: outright on the three named cases, and
-    elsewhere as soon as the closed form at the position agrees with the
-    opening of the closed form at what the move leaves behind. *)
-Theorem allcock_move_optimal :
+Theorem long_sweep_wf : forall G, In G long_sweep -> wf G.
+Proof.
+  assert (Haux : forall n G, In G (tuples n long_pool) -> wf G)
+    by (intros n G HG; apply (tuples_wf n long_pool long_pool_wf G HG)).
+  intros G H; unfold long_sweep in H.
+  apply in_app_or in H; destruct H as [H | H]; [apply (Haux 1%nat); exact H|].
+  apply in_app_or in H; destruct H as [H | H]; [apply (Haux 2%nat); exact H|].
+  apply in_app_or in H; destruct H as [H | H]; [apply (Haux 3%nat); exact H|].
+  apply in_app_or in H; destruct H as [H | H];
+    [apply (Haux 4%nat); exact H | apply (Haux 5%nat); exact H].
+Qed.
+
+(** * The checks *)
+
+Definition v41_ok (G : position) : bool :=
+  match G with [] => true | _ :: _ => Z.eqb (value G) (v41 G) end.
+
+Definition sv_ok (G : position) : bool := Z.eqb (svalue G) (sv G).
+
+Theorem v41_agrees_with_recursion : forallb v41_ok long_sweep = true.
+Proof. vm_compute; reflexivity. Qed.
+
+Theorem sv_agrees_with_recursion : forallb sv_ok short_sweep = true.
+Proof. vm_compute; reflexivity. Qed.
+
+Theorem allcock_ok_on_sweep : forallb allcock_okb long_sweep = true.
+Proof. vm_compute; reflexivity. Qed.
+
+(** ****************************************************************** *)
+(** The standard move on a three-chain, without side conditions.
+
+    [standard_move_no3_complete] settles every position holding no three-chain.
+    Where one is present the strategy opens it, and [standard_move_reduces]
+    turns optimality into the identity
+
+      v41 G = 1 + |v41 (G less one three-chain) - 2|.
+
+    The identity is proved here by the branch of [DotsAndBoxes.v41] the
+    position falls into. Three of the five are immediate: the first because
+    removing a three-chain raises the controlled value by exactly one, the
+    third because it needs no three-chain and so cannot fire, and the second
+    because [branch2_cval_m2] pins the controlled value at minus two. The
+    remaining two are [branch4_no_4loop], which shows the four-loop branch
+    cannot carry a four-loop once the three named cases are excluded, and
+    [std3_rest_bounds], which confines what the move leaves to the interval one
+    to three. *)
+
+(** * What the standard move leaves behind *)
+
+Lemma std3_selection :
   forall G p,
-    wf G -> allcock_move G = Some p ->
-    ((case_i G || case_ii G || case_iii G)%bool = true
-     \/ snd p = []
-     \/ v41 G = vopen (fst p) (v41 (snd p))) ->
+    (1 <= count3 G)%nat -> standard_move G = Some p ->
+    fst p = Chain 3 /\ In p (selections G) /\
+    Permutation (Chain 3 :: snd p) G /\
+    count3 (snd p) = pred (count3 G) /\
+    count4 (snd p) = count4 G /\
+    (3 + size (snd p))%nat = size G.
+Proof.
+  intros G p H3 Hm.
+  assert (Hp3 : fst p = Chain 3) by (apply (standard_move_three G p H3); exact Hm).
+  assert (Hin : In p (selections G)) by (apply standard_move_In; exact Hm).
+  pose proof (selections_perm G p Hin) as Hperm; rewrite Hp3 in Hperm.
+  repeat split; try assumption.
+  - rewrite <- (count3_perm _ _ Hperm), count3_cons; reflexivity.
+  - rewrite <- (count4_perm _ _ Hperm), count4_cons; reflexivity.
+  - pose proof (selections_size G p Hin) as Hsz; rewrite Hp3 in Hsz.
+    cbn [csize] in Hsz; exact Hsz.
+Qed.
+
+(** Removing a three-chain raises the controlled value by one, or by three when
+    nothing but loops is left and the terminal bonus climbs from six to eight. *)
+Lemma std3_cval :
+  forall G rest,
+    Permutation (Chain 3 :: rest) G -> rest <> [] ->
+    (forallb is_loop_b rest = false /\ cval rest = cval G + 1)
+    \/ (forallb is_loop_b rest = true /\ cval rest = cval G + 3).
+Proof.
+  intros G rest Hperm HrNil.
+  assert (Hcb : cval G = cval (Chain 3 :: rest))
+    by (symmetry; apply cval_perm; exact Hperm).
+  destruct (forallb is_loop_b rest) eqn:EL.
+  - right; split; [reflexivity|].
+    assert (Htb : tb (Chain 3 :: rest) = 6)
+      by (apply tb_six_of_loops_and_three; assumption).
+    assert (Htbr : tb rest = 8) by (apply tb_all_loops; assumption).
+    unfold cval in Hcb |- *; rewrite cbase_cons, Htb, weight_chain in Hcb.
+    rewrite Htbr; cbn [Z.of_nat] in Hcb; lia.
+  - left; split; [reflexivity|].
+    assert (Htb : tb (Chain 3 :: rest) = tb rest)
+      by (apply tb_cons_3chain_not_all_loops; exact EL).
+    unfold cval in Hcb |- *; rewrite cbase_cons, Htb, weight_chain in Hcb.
+    cbn [Z.of_nat] in Hcb; lia.
+Qed.
+
+(** Only a lone three-chain over loops leaves loops alone, and that is the
+    position case (i) names. *)
+Lemma std3_all_loops_three_plus :
+  forall G rest,
+    Permutation (Chain 3 :: rest) G -> rest <> [] ->
+    forallb is_loop_b rest = true -> three_plus_loops_b G = true.
+Proof.
+  intros G rest Hperm HrNil HL; unfold three_plus_loops_b.
+  assert (Hc3 : count3 G = 1%nat).
+  { rewrite <- (count3_perm _ _ Hperm), count3_cons.
+    assert (H0 : count3 rest = 0%nat).
+    { apply count3_zero_iff; apply not_true_is_false; intros Hc.
+      apply existsb_exists in Hc; destruct Hc as [C [HC H3]].
+      rewrite forallb_forall in HL; specialize (HL C HC).
+      destruct C as [k | k]; [discriminate HL | discriminate H3]. }
+    rewrite H0; reflexivity. }
+  assert (Hcl : count_loops G = length rest).
+  { unfold count_loops.
+    rewrite <- (Permutation_length
+                  (Permutation_filter is_loop_b _ _ Hperm)).
+    cbn [filter is_loop_b].
+    assert (Hall : filter is_loop_b rest = rest).
+    { apply filter_all; intros C HC.
+      rewrite forallb_forall in HL; apply HL; exact HC. }
+    rewrite Hall; reflexivity. }
+  assert (Hlen : length G = S (length rest))
+    by (rewrite <- (Permutation_length Hperm); reflexivity).
+  assert (Hpos : (1 <= length rest)%nat)
+    by (destruct rest; [contradiction | cbn [length]; lia]).
+  apply andb_true_iff; split; [apply andb_true_iff; split|].
+  - apply Nat.eqb_eq; exact Hc3.
+  - apply Nat.leb_le; lia.
+  - apply Nat.eqb_eq; lia.
+Qed.
+
+(** * The four-loop branch carries no four-loop *)
+
+Lemma branch4_no_4loop :
+  forall G,
+    case_ii G = false -> case_iii G = false ->
+    cval G < 2 -> count3 G = 1%nat -> Z.of_nat (size G) mod 4 = 3 ->
+    count4 G = 0%nat.
+Proof.
+  intros G Hii Hiii Hc Hc3 Hmod.
+  destruct (count4 G) as [|k] eqn:E4; [reflexivity|].
+  exfalso.
+  assert (H4 : (1 <= count4 G)%nat) by lia.
+  set (H1 := drop_first is_4loop_b G) in *.
+  assert (Hs1 : In (Loop 4, H1) (selections G))
+    by (apply drop_first_4loop_sel; exact H4).
+  pose proof (selections_perm G (Loop 4, H1) Hs1) as Hp1; cbn [fst snd] in Hp1.
+  assert (Hc31 : count3 H1 = 1%nat).
+  { rewrite <- Hc3, <- (count3_perm _ _ Hp1); reflexivity. }
+  destruct (Z_le_gt_dec (cval G) (-2)) as [Hlow | Hhigh].
+  - (* case (iii) fires *)
+    assert (Hsz1 : (4 + size H1)%nat = size G)
+      by (exact (selections_size G (Loop 4, H1) Hs1)).
+    set (H2 := drop_first is_3chain_b H1) in *.
+    assert (Hs2 : In (Chain 3, H2) (selections H1))
+      by (apply drop_first_3chain_sel; lia).
+    assert (Hsz2 : (3 + size H2)%nat = size H1)
+      by (exact (selections_size H1 (Chain 3, H2) Hs2)).
+    pose proof (selections_perm H1 (Chain 3, H2) Hs2) as Hp2; cbn [fst snd] in Hp2.
+    assert (Hc32 : count3 H1 = S (count3 H2))
+      by (rewrite <- (count3_perm _ _ Hp2), count3_cons; reflexivity).
+    assert (Hmod2 : Z.of_nat (size H2) mod 4 = 0).
+    { assert (E : Z.of_nat (size G) = Z.of_nat (size H2) + 7) by lia.
+      rewrite E in Hmod.
+      rewrite Zplus_mod in Hmod.
+      assert (Hb : 0 <= Z.of_nat (size H2) mod 4 < 4)
+        by (apply Z.mod_pos_bound; lia).
+      assert (Hr : Z.of_nat (size H2) mod 4 = 0 \/ Z.of_nat (size H2) mod 4 = 1
+                   \/ Z.of_nat (size H2) mod 4 = 2
+                   \/ Z.of_nat (size H2) mod 4 = 3) by lia.
+      destruct Hr as [E0|[E0|[E0|E0]]]; rewrite E0 in Hmod;
+        cbn in Hmod; solve [exact E0 | discriminate Hmod]. }
+    assert (Hbad : case_iii G = true).
+    { unfold case_iii; fold H1; fold H2.
+      apply andb_true_iff; split; [apply andb_true_iff; split|].
+      - apply andb_true_iff; split; [apply andb_true_iff; split|].
+        + apply Z.leb_le; lia.
+        + apply Nat.leb_le; lia.
+        + apply Nat.leb_le; lia.
+      - apply Z.eqb_eq; exact Hmod2.
+      - apply Nat.eqb_eq; lia. }
+    congruence.
+  - (* case (ii) fires *)
+    assert (Hnr : rest_is_three_threes_b G = false).
+    { unfold rest_is_three_threes_b; fold H1.
+      apply andb_false_iff; left; apply Nat.eqb_neq; lia. }
+    assert (Hbad : case_ii G = true).
+    { unfold case_ii.
+      apply andb_true_iff; split; [apply andb_true_iff; split|].
+      - apply andb_true_iff; split; apply Z.leb_le; lia.
+      - apply Nat.leb_le; lia.
+      - apply negb_true_iff; exact Hnr. }
+    congruence.
+Qed.
+
+(** * The board size and the remainder's controlled value, modulo four *)
+
+Lemma mod4_add3_eq3 : forall c, (c + 3) mod 4 = 3 <-> c mod 4 = 0.
+Proof.
+  intros c.
+  assert (Hb : 0 <= c mod 4 < 4) by (apply Z.mod_pos_bound; lia).
+  rewrite <- (Z.add_mod_idemp_l c 3 4) by lia.
+  assert (Hr : c mod 4 = 0 \/ c mod 4 = 1 \/ c mod 4 = 2 \/ c mod 4 = 3) by lia.
+  destruct Hr as [E|[E|[E|E]]]; rewrite E; vm_compute;
+    split; solve [reflexivity | discriminate | intros H; discriminate H].
+Qed.
+
+(** With no three-chain left, the board's size and what remains agree modulo
+    four up to the three boxes the opened chain carried. *)
+Lemma size_cval_mod4_shift :
+  forall rest,
+    existsb is_3chain_b rest = false ->
+    (3 + Z.of_nat (size rest)) mod 4 = (cval rest + 3) mod 4.
+Proof.
+  intros rest H; destruct (size_cval_mod4 rest H) as [q Hq].
+  assert (E : 3 + Z.of_nat (size rest) = (cval rest + 3) + q * 4) by lia.
+  rewrite E, Z_mod_plus_full; reflexivity.
+Qed.
+
+Lemma cval_mod4_of_size :
+  forall G rest,
+    existsb is_3chain_b rest = false ->
+    Z.of_nat (size G) = 3 + Z.of_nat (size rest) ->
+    Z.of_nat (size G) mod 4 = 3 ->
+    cval rest mod 4 = 0.
+Proof.
+  intros G rest H3 Hsz Hmod.
+  rewrite Hsz, (size_cval_mod4_shift rest H3) in Hmod.
+  apply mod4_add3_eq3; exact Hmod.
+Qed.
+
+Lemma cval_mod4_ne0_of_size :
+  forall G rest,
+    existsb is_3chain_b rest = false ->
+    Z.of_nat (size G) = 3 + Z.of_nat (size rest) ->
+    Z.of_nat (size G) mod 4 <> 3 ->
+    cval rest mod 4 <> 0.
+Proof.
+  intros G rest H3 Hsz Hmod Hc; apply Hmod.
+  rewrite Hsz, (size_cval_mod4_shift rest H3).
+  apply mod4_add3_eq3; exact Hc.
+Qed.
+
+(** * Bookkeeping shared by the two branches *)
+
+Lemma std3_facts :
+  forall G rest,
+    wf G -> Permutation (Chain 3 :: rest) G ->
+    wf rest /\
+    count3 G = S (count3 rest) /\
+    count4 rest = count4 G /\
+    Z.of_nat (size G) = 3 + Z.of_nat (size rest).
+Proof.
+  intros G rest Hw Hperm.
+  assert (Hwc : wf (Chain 3 :: rest))
+    by (apply (wf_perm G); [apply Permutation_sym; exact Hperm | exact Hw]).
+  repeat split.
+  - inversion Hwc; assumption.
+  - rewrite <- (count3_perm _ _ Hperm), count3_cons; reflexivity.
+  - rewrite <- (count4_perm _ _ Hperm), count4_cons; reflexivity.
+  - rewrite <- (size_perm _ _ Hperm), size_cons; cbn [csize]; lia.
+Qed.
+
+(** * What the four-loop branch leaves behind *)
+
+(** On that branch the remainder carries no three-chain and no four-loop, its
+    controlled value is divisible by four, and it is small enough that four is
+    the only possibility. *)
+Lemma branch4_rest_value :
+  forall G rest,
+    wf G -> Permutation (Chain 3 :: rest) G -> rest <> [] ->
+    cval G < 2 -> count3 G = 1%nat -> Z.of_nat (size G) mod 4 = 3 ->
+    count4 G = 0%nat ->
+    value rest = 4.
+Proof.
+  intros G rest Hw Hperm HrNil Hc Hc3 Hmod H4.
+  destruct (std3_facts G rest Hw Hperm) as [Hwr [Hc3r [Hc4r Hsz]]].
+  assert (Hzero : count3 rest = 0%nat) by lia.
+  assert (Hno3 : existsb is_3chain_b rest = false)
+    by (apply count3_zero_iff; exact Hzero).
+  assert (Hc4z : count4 rest = 0%nat) by lia.
+  assert (Hm0 : cval rest mod 4 = 0)
+    by (apply (cval_mod4_of_size G rest Hno3 Hsz Hmod)).
+  assert (Hle4 : cval rest <= 4)
+    by (destruct (std3_cval G rest Hperm HrNil) as [[_ E] | [_ E]]; lia).
+  destruct (Z_le_gt_dec 2 (cval rest)) as [Hge2 | Hlt2].
+  - rewrite (value_cval_ge2 rest Hwr Hge2).
+    assert (H2 : cval rest <> 2)
+      by (intros E; rewrite E in Hm0; vm_compute in Hm0; discriminate).
+    assert (H3' : cval rest <> 3)
+      by (intros E; rewrite E in Hm0; vm_compute in Hm0; discriminate).
+    lia.
+  - rewrite (value_no3 rest Hwr HrNil Hno3 ltac:(lia)), Hc4z.
+    unfold w38; cbn [Z.of_nat].
+    rewrite (proj2 (Z.leb_gt 2 (cval rest + 4 * 0))) by lia.
+    rewrite w11_f0; unfold w4z; rewrite Hm0; reflexivity.
+Qed.
+
+(** * What the parity branch leaves behind *)
+
+Lemma std3_rest_bounds :
+  forall G rest,
+    wf G -> (1 <= count3 G)%nat ->
+    Permutation (Chain 3 :: rest) G -> rest <> [] ->
+    cval G < 2 ->
+    (existsb is_4loop_b G && negb (only34 G) && (-2 <=? cval G))%bool = false ->
+    ((count3 G =? 1)%nat && (Z.of_nat (size G) mod 4 =? 3))%bool = false ->
+    1 <= value rest <= 3.
+Proof.
+  intros G rest Hw H3 Hperm HrNil Hc Hb2 Hb4.
+  destruct (std3_facts G rest Hw Hperm) as [Hwr [Hc3r [Hc4r Hsz]]].
+  destruct (Nat.eq_dec (count3 rest) 0) as [Hz | Hpos].
+  - (* the three-chain was the only one *)
+    assert (Hno3 : existsb is_3chain_b rest = false)
+      by (apply count3_zero_iff; exact Hz).
+    assert (Hmod : Z.of_nat (size G) mod 4 <> 3).
+    { apply andb_false_iff in Hb4; destruct Hb4 as [E | E].
+      - apply Nat.eqb_neq in E; lia.
+      - apply Z.eqb_neq in E; exact E. }
+    assert (Hm0 : cval rest mod 4 <> 0)
+      by (apply (cval_mod4_ne0_of_size G rest Hno3 Hsz Hmod)).
+    assert (Hle4 : cval rest <= 4)
+      by (destruct (std3_cval G rest Hperm HrNil) as [[_ E] | [_ E]]; lia).
+    destruct (Z_le_gt_dec 2 (cval rest)) as [Hge2 | Hlt2].
+    + rewrite (value_cval_ge2 rest Hwr Hge2).
+      assert (Hne4 : cval rest <> 4)
+        by (intros E; rewrite E in Hm0; vm_compute in Hm0; congruence).
+      lia.
+    + apply (value_no3_bounds rest Hwr HrNil Hno3 ltac:(lia) Hm0).
+  - (* a three-chain survives, so nothing but loops is impossible *)
+    assert (HL : forallb is_loop_b rest = false).
+    { assert (Hin : In (Chain 3) rest) by (apply count3_pos_In; lia).
+      apply not_true_is_false; intros Hc'.
+      rewrite forallb_forall in Hc'; specialize (Hc' (Chain 3) Hin);
+        discriminate. }
+    assert (Hcr : cval rest = cval G + 1)
+      by (destruct (std3_cval G rest Hperm HrNil) as [[_ E] | [Ebad _]];
+          [exact E | congruence]).
+    destruct (Z_le_gt_dec 2 (cval rest)) as [Hge2 | Hlt2].
+    + rewrite (value_cval_ge2 rest Hwr Hge2); lia.
+    + split; [| apply (value_le3_with3 rest Hwr ltac:(lia) ltac:(lia))].
+      destruct (existsb is_4loop_b rest) eqn:E4r.
+      * (* a four-loop is left, so the position was excluded from branch two *)
+        assert (E4G : existsb is_4loop_b G = true).
+        { apply count4_pos_iff; rewrite <- Hc4r.
+          apply count4_pos_iff; exact E4r. }
+        rewrite E4G in Hb2; cbn [andb] in Hb2.
+        apply andb_false_iff in Hb2; destruct Hb2 as [Eo | Ec].
+        -- apply negb_false_iff in Eo.
+           assert (Hor : only34 rest = true).
+           { assert (Hcons : only34 (Chain 3 :: rest) = true)
+               by (apply (only34_perm_inv G);
+                   [apply Permutation_sym; exact Hperm | exact Eo]).
+             destruct (only34_cons (Chain 3) rest Hcons) as [_ Hr]; exact Hr. }
+           rewrite (value_only34 rest Hor).
+           pose proof (v36_bounds (count3 rest) (count4 rest) ltac:(lia)); lia.
+        -- apply Z.leb_gt in Ec.
+           apply (value_pos_of_3chain rest Hwr ltac:(lia) ltac:(lia)).
+      * (* no four-loop, so the three-chain table applies and is at least one *)
+        rewrite (value_no4_with3 rest Hwr E4r
+                   (proj2 (count3_pos_iff rest) ltac:(lia)) ltac:(lia)).
+        pose proof (w35z_range (count3 rest) (Z.of_nat (size rest))); lia.
+Qed.
+
+(** * A heap of loops has an even number of boxes *)
+
+Lemma size_all_loops_even :
+  forall L, wf L -> forallb is_loop_b L = true ->
+    Z.even (Z.of_nat (size L)) = true.
+Proof.
+  induction L as [|C L IH]; intros Hw HL; [reflexivity|].
+  cbn [forallb] in HL; apply andb_true_iff in HL; destruct HL as [HC HLs].
+  assert (HwC : wf_comp C) by (apply (wf_head C L); exact Hw).
+  destruct C as [k | k]; [discriminate HC|].
+  destruct HwC as [_ Hev].
+  rewrite size_cons, Nat2Z.inj_add, Z.even_add; cbn [csize].
+  rewrite (IH (wf_tail _ _ Hw) HLs), Zeven_of_nat, Hev; reflexivity.
+Qed.
+
+(** * Theorem 1.1 on the three-chain block *)
+
+(** Outside the three named cases the standard move opens a three-chain, and
+    that opening is optimal. No hypothesis beyond wellformedness survives. *)
+Theorem standard_move_3chain_complete :
+  forall G p,
+    wf G -> (1 <= count3 G)%nat ->
+    (case_i G || case_ii G || case_iii G)%bool = false ->
+    standard_move G = Some p -> snd p <> [] ->
     value G = value_open p /\
     (forall q, In q (selections G) -> value_open p <= value_open q).
 Proof.
-  intros G p Hw Hm Hcase.
+  intros G p Hw H3 Hd Hm HrNil.
+  assert (Hi : case_i G = false)
+    by (destruct (case_i G); [cbn in Hd; discriminate | reflexivity]).
+  assert (Hii : case_ii G = false).
+  { destruct (case_ii G); [|reflexivity].
+    rewrite Hi in Hd; cbn in Hd; discriminate. }
+  assert (Hiii : case_iii G = false).
+  { destruct (case_iii G); [|reflexivity].
+    rewrite Hi, Hii in Hd; cbn in Hd; discriminate. }
+  destruct (std3_selection G p H3 Hm) as [Hp3 [Hin [Hperm [Hc3 [Hc4 Hsz]]]]].
+  destruct (std3_facts G (snd p) Hw Hperm) as [Hwr [_ [_ Hszz]]].
+  destruct (Z_lt_le_dec (cval G) 2) as [Hlt2 | Hge2].
+  - (* below the threshold: read off the branch the classifier takes *)
+    destruct (existsb is_4loop_b G && negb (only34 G)
+              && (-2 <=? cval G))%bool eqn:Hb2.
+    + (* the four-loop branch, pinned at minus two *)
+      assert (Hcm2 : cval G = -2) by (apply (branch2_cval_m2 G Hii Hb2 Hlt2)).
+      assert (HLf : forallb is_loop_b (snd p) = false).
+      { destruct (forallb is_loop_b (snd p)) eqn:E; [|reflexivity].
+        exfalso.
+        pose proof (size_all_loops_even (snd p) Hwr E) as Hev.
+        pose proof (cval_parity G) as Hpar.
+        rewrite Hcm2 in Hpar; cbn in Hpar.
+        rewrite Hszz, Z.even_add in Hpar; cbn [Z.even] in Hpar.
+        rewrite Hev in Hpar; cbn in Hpar; discriminate. }
+      assert (Hcr : cval (snd p) = -1).
+      { destruct (std3_cval G (snd p) Hperm HrNil) as [[_ E] | [Ebad _]];
+          [lia | congruence]. }
+      assert (Hb2keep := Hb2).
+      apply andb_true_iff in Hb2; destruct Hb2 as [Hb2a _].
+      apply andb_true_iff in Hb2a; destruct Hb2a as [H4G Ho34].
+      apply negb_true_iff in Ho34.
+      assert (Hb2r : (existsb is_4loop_b (snd p) && negb (only34 (snd p))
+                      && (-2 <=? cval (snd p)))%bool = true).
+      { apply andb_true_iff; split; [apply andb_true_iff; split|].
+        - apply count4_pos_iff; rewrite Hc4; apply count4_pos_iff; exact H4G.
+        - apply negb_true_iff; apply not_true_is_false; intros Hor.
+          assert (Hbad : only34 G = true).
+          { apply (only34_perm_inv (Chain 3 :: snd p) G Hperm).
+            unfold only34 in Hor |- *; cbn [forallb]; rewrite Hor; reflexivity. }
+          congruence.
+        - apply Z.leb_le; lia. }
+      apply (standard_move_3chain_both_4loop G p Hw H3 Hm HrNil Hcm2 Hcr);
+        [exact Hb2keep | exact Hb2r].
+    + destruct ((count3 G =? 1)%nat
+                && (Z.of_nat (size G) mod 4 =? 3))%bool eqn:Hb4.
+      * (* the single-three-chain branch: it carries no four-loop *)
+        apply andb_true_iff in Hb4; destruct Hb4 as [Hb4a Hb4b].
+        apply Nat.eqb_eq in Hb4a; apply Z.eqb_eq in Hb4b.
+        assert (H4z : count4 G = 0%nat)
+          by (apply (branch4_no_4loop G Hii Hiii Hlt2 Hb4a Hb4b)).
+        assert (Hvr : value (snd p) = 4)
+          by (apply (branch4_rest_value G (snd p) Hw Hperm HrNil
+                       Hlt2 Hb4a Hb4b H4z)).
+        apply (standard_move_3chain_reduces G p Hw H3 Hm HrNil).
+        rewrite (v41_branch4 G Hlt2 Hb2 Hb4a Hb4b), H4z.
+        rewrite (w310_no4loop (cval G) Hlt2).
+        rewrite <- (value_complete (snd p) Hwr HrNil), Hvr.
+        reflexivity.
+      * (* the parity branch: what is left is worth one, two or three *)
+        assert (Hbnd : 1 <= value (snd p) <= 3)
+          by (apply (std3_rest_bounds G (snd p) Hw H3 Hperm HrNil
+                       Hlt2 Hb2 Hb4)).
+        assert (Hpar : Z.even (value (snd p))
+                       = Z.even (Z.of_nat (size (snd p))))
+          by (apply value_parity).
+        apply (standard_move_3chain_reduces G p Hw H3 Hm HrNil).
+        rewrite (v41_branch5 G Hlt2 Hb2 H3 Hb4).
+        rewrite <- (value_complete (snd p) Hwr HrNil).
+        assert (Hsp : Z.even (Z.of_nat (size G))
+                      = negb (Z.even (Z.of_nat (size (snd p))))).
+        { rewrite Hszz, Z.even_add; cbn [Z.even].
+          destruct (Z.even (Z.of_nat (size (snd p)))); reflexivity. }
+        rewrite Hsp.
+        destruct (Z.even (Z.of_nat (size (snd p)))) eqn:Ev; cbn [negb].
+        -- (* what is left is even, so it is exactly two *)
+           assert (H1 : value (snd p) <> 1)
+             by (intros E; rewrite E in Hpar; discriminate).
+           assert (H3' : value (snd p) <> 3)
+             by (intros E; rewrite E in Hpar; discriminate).
+           assert (E2 : value (snd p) = 2) by lia.
+           rewrite E2; reflexivity.
+        -- (* what is left is odd, so it is one or three *)
+           assert (H2 : value (snd p) <> 2)
+             by (intros E; rewrite E in Hpar; discriminate).
+           assert (Ec : value (snd p) = 1 \/ value (snd p) = 3) by lia.
+           destruct Ec as [E | E]; rewrite E; reflexivity.
+  - (* at or above the threshold: nothing but loops would be case (i) *)
+    assert (HLf : forallb is_loop_b (snd p) = false).
+    { destruct (forallb is_loop_b (snd p)) eqn:E; [|reflexivity].
+      exfalso.
+      assert (Htp : three_plus_loops_b G = true)
+        by (apply (std3_all_loops_three_plus G (snd p) Hperm HrNil E)).
+      assert (Hbad : case_i G = true)
+        by (unfold case_i; apply andb_true_iff; split;
+            [apply Z.leb_le; lia | exact Htp]).
+      congruence. }
+    apply (standard_move_3chain_stable G p Hw H3 Hm HLf ltac:(lia)).
+Qed.
+
+(** * Allcock's Theorem 1.1 *)
+
+(** The standard move is optimal wherever the strategy plays it. *)
+Theorem standard_move_complete :
+  forall G p,
+    wf G -> (case_i G || case_ii G || case_iii G)%bool = false ->
+    standard_move G = Some p ->
+    value G = value_open p /\
+    (forall q, In q (selections G) -> value_open p <= value_open q).
+Proof.
+  intros G p Hw Hd Hm.
+  destruct (Nat.eq_dec (count3 G) 0) as [H0 | Hpos].
+  - apply (standard_move_no3_complete G p Hw H0 Hm).
+  - destruct (list_eq_dec comp_eq_dec (snd p) []) as [Hnil | Hnn].
+    + apply (standard_move_singleton G p Hm Hnil).
+    + apply (standard_move_3chain_complete G p Hw ltac:(lia) Hd Hm Hnn).
+Qed.
+
+(** And so is the strategy: on every wellformed position, the move it names
+    attains the value and no opening beats it. This is Theorem 1.1. *)
+Theorem allcock_move_optimal_complete :
+  forall G p,
+    wf G -> allcock_move G = Some p ->
+    value G = value_open p /\
+    (forall q, In q (selections G) -> value_open p <= value_open q).
+Proof.
+  intros G p Hw Hm.
   destruct (case_i G || case_ii G || case_iii G)%bool eqn:Hd.
   - apply (allcock_named_cases_optimal G p Hw Hd Hm).
-  - apply (allcock_standard_optimal G p Hw Hd Hm).
-    destruct Hcase as [Hc | [Hnil | Hid]];
-      [rewrite Hc in Hd; discriminate | left; exact Hnil | right; exact Hid].
+  - rewrite (allcock_move_standard G Hd) in Hm.
+    apply (standard_move_complete G p Hw Hd Hm).
+Qed.
+
+(** So the computational check never fails, and consulting it is redundant. *)
+Corollary allcock_okb_complete : forall G, wf G -> allcock_okb G = true.
+Proof.
+  intros G Hw; unfold allcock_okb.
+  destruct (allcock_move G) as [p|] eqn:Hm; [|reflexivity].
+  destruct (allcock_move_optimal_complete G p Hw Hm) as [Hval _].
+  apply Z.eqb_eq; exact Hval.
+Qed.
+
+(** * The strategy always names a move *)
+
+Lemma shortest_of_some_of_witness :
+  forall f G C,
+    In C G -> f C = true -> exists p, shortest_of f G = Some p.
+Proof.
+  intros f G C HC Hf; unfold shortest_of.
+  destruct (In_selections G C HC) as [rest Hsel].
+  destruct (filter (fun q => f (fst q)) (selections G)) as [|b l] eqn:E.
+  - exfalso.
+    assert (Hin : In (C, rest) (filter (fun q => f (fst q)) (selections G)))
+      by (apply filter_In; split; [exact Hsel | exact Hf]).
+    rewrite E in Hin; destruct Hin.
+  - eexists; reflexivity.
+Qed.
+
+Lemma count_loops_pos_In :
+  forall G, (1 <= count_loops G)%nat -> exists C, In C G /\ is_loop_b C = true.
+Proof.
+  intros G H; unfold count_loops in H.
+  destruct (filter is_loop_b G) as [|C l] eqn:E; simpl in H; [lia|].
+  exists C; apply (proj1 (filter_In is_loop_b C G)); rewrite E; left; reflexivity.
+Qed.
+
+(** Each named case asks for a loop, so the shortest loop it opens exists. *)
+Lemma named_case_has_loop :
+  forall G,
+    (case_i G || case_ii G || case_iii G)%bool = true ->
+    exists C, In C G /\ is_loop_b C = true.
+Proof.
+  intros G Hd.
+  apply orb_true_iff in Hd; destruct Hd as [Hd | Hiii].
+  - apply orb_true_iff in Hd; destruct Hd as [Hi | Hii].
+    + apply andb_true_iff in Hi; destruct Hi as [_ Htp].
+      apply andb_true_iff in Htp; destruct Htp as [Htp _].
+      apply andb_true_iff in Htp; destruct Htp as [_ Hl].
+      apply Nat.leb_le in Hl; apply count_loops_pos_In; exact Hl.
+    + destruct (case_ii_parts G Hii) as [_ [_ [H4 _]]].
+      exists (Loop 4); split; [apply count4_pos_In; exact H4 | reflexivity].
+  - destruct (case_iii_parts G Hiii) as [_ [H4 _]].
+    exists (Loop 4); split; [apply count4_pos_In; exact H4 | reflexivity].
+Qed.
+
+Lemma shortest_of_any_some :
+  forall G, G <> [] -> exists p, shortest_of any_comp G = Some p.
+Proof.
+  intros G HNil; unfold shortest_of.
+  assert (Hf : filter (fun q => any_comp (fst q)) (selections G) = selections G)
+    by (apply filter_all; intros x _; reflexivity).
+  rewrite Hf.
+  destruct (selections G) as [|r rs] eqn:Es.
+  - exfalso; apply HNil, selections_nil_iff; exact Es.
+  - eexists; reflexivity.
+Qed.
+
+Theorem allcock_move_some :
+  forall G, G <> [] -> exists p, allcock_move G = Some p.
+Proof.
+  intros G HNil; unfold allcock_move.
+  destruct (case_i G || case_ii G || case_iii G)%bool eqn:Hd.
+  - destruct (named_case_has_loop G Hd) as [C [HC Hf]].
+    apply (shortest_of_some_of_witness is_loop_b G C HC Hf).
+  - unfold standard_move.
+    destruct (shortest_of is_3chain_b G) as [p|]; [exists p; reflexivity|].
+    destruct (shortest_of is_loop_b G) as [p|]; [exists p; reflexivity|].
+    apply shortest_of_any_some; exact HNil.
+Qed.
+
+(** Theorem 1.1, in one statement: on every nonempty wellformed position the
+    strategy names an opening, and that opening is optimal. *)
+Theorem allcock_theorem_1_1 :
+  forall G,
+    wf G -> G <> [] ->
+    exists p, allcock_move G = Some p /\
+              In p (selections G) /\
+              value G = value_open p /\
+              (forall q, In q (selections G) -> value_open p <= value_open q).
+Proof.
+  intros G Hw HNil.
+  destruct (allcock_move_some G HNil) as [p Hp]; exists p.
+  destruct (allcock_move_optimal_complete G p Hw Hp) as [Hval Hmin].
+  repeat split;
+    [exact Hp | apply allcock_move_In; exact Hp | exact Hval | exact Hmin].
 Qed.

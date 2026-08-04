@@ -1178,15 +1178,15 @@ Proof. intros m n ms Hl H; apply (reachable_loony m n init ms Hl H). Qed.
     control, or leaves the handout and keeps it. *)
 Inductive decision : Type := TakeAll | Decline.
 
-Definition step : Type := (comp * decision)%type.
+Definition estep : Type := (comp * decision)%type.
 
-Definition is_decline (p : step) : bool :=
+Definition is_decline (p : estep) : bool :=
   match snd p with Decline => true | TakeAll => false end.
 
-Definition declines (ps : list step) : nat :=
+Definition declines (ps : list estep) : nat :=
   length (filter is_decline ps).
 
-Definition takealls (ps : list step) : nat :=
+Definition takealls (ps : list estep) : nat :=
   length (filter (fun p => negb (is_decline p)) ps).
 
 Lemma declines_takealls :
@@ -1201,7 +1201,7 @@ Qed.
 
 (** Each turn opens one component of what is left; the play ends when nothing
     remains. *)
-Fixpoint eplay (G : position) (ps : list step) : Prop :=
+Fixpoint eplay (G : position) (ps : list estep) : Prop :=
   match ps with
   | [] => G = []
   | p :: r => exists rest, In (fst p, rest) (selections G) /\ eplay rest r
@@ -1245,7 +1245,7 @@ Qed.
 (** A turn ends on a move that takes no box. Opening a component is such a
     move, and so is the handout a declining controller leaves; taking a
     component whole is not, since the last box keeps the move. *)
-Definition eturns (ps : list step) : nat := (length ps + declines ps)%nat.
+Definition eturns (ps : list estep) : nat := (length ps + declines ps)%nat.
 
 (** The corrected bridge: the turns of an endgame are its components together
     with its declines. *)
@@ -1272,7 +1272,7 @@ Qed.
 (** * Control *)
 
 (** Control passes exactly when a component is taken whole. *)
-Fixpoint opener_after (start : bool) (ps : list step) : bool :=
+Fixpoint opener_after (start : bool) (ps : list estep) : bool :=
   match ps with
   | [] => start
   | p :: r => opener_after (if is_decline p then start else negb start) r
@@ -1323,7 +1323,7 @@ Proof. reflexivity. Qed.
 Lemma edx_loop : forall k, edx (Loop k) = 2%nat.
 Proof. reflexivity. Qed.
 
-Fixpoint eextra (ps : list step) : nat :=
+Fixpoint eextra (ps : list estep) : nat :=
   match ps with
   | [] => 0%nat
   | p :: r => ((if is_decline p then edx (fst p) else 0) + eextra r)%nat
@@ -1405,7 +1405,7 @@ Qed.
 (** So the play the endgame actually takes on that position declines, its turns
     exceed its components, and the proposal fails there. *)
 Theorem proposal_fails :
-  exists (G : position) (ps : list step),
+  exists (G : position) (ps : list estep),
     eplay G ps /\ declines ps <> 0%nat /\ eturns ps <> length G.
 Proof.
   exists [Chain 3; Chain 3], [(Chain 3, Decline); (Chain 3, TakeAll)].
