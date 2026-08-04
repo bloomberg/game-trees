@@ -19,6 +19,7 @@ From Stdlib Require Import List.
 From Stdlib Require Import PeanoNat.
 From Stdlib Require Import ZArith.
 From Stdlib Require Import Bool.
+From Stdlib Require Import Sorting.Permutation.
 From Stdlib Require Import Lia.
 
 Import ListNotations.
@@ -188,6 +189,174 @@ Proof.
     cbn [fst snd] in Hcv.
   rewrite Htb, weight_loop_len in Hcv.
   unfold cval in *; simpl Z.of_nat in Hcv; lia.
+Qed.
+
+(** * Case (i) in general *)
+
+(** Loops of eight or more are large, so a heap of them weighs nothing
+    against the controller. *)
+Lemma allbig_loops_ge8 :
+  forall L,
+    forallb is_loop_b L = true ->
+    (forall C, In C L -> (8 <= csize C)%nat) ->
+    allbig L.
+Proof.
+  intros L HL Hmin; unfold allbig; rewrite Forall_forall; intros C HC.
+  rewrite forallb_forall in HL; specialize (HL C HC).
+  destruct C as [k | k]; [simpl in HL; discriminate|].
+  unfold big; simpl hand; simpl csize.
+  specialize (Hmin (Loop k) HC); simpl csize in Hmin; lia.
+Qed.
+
+(** A position of one three-chain over a nonempty heap of loops scores the
+    six bonus, before and after a loop is taken out. *)
+Lemma tb_three_over_loops :
+  forall R,
+    forallb is_loop_b R = true -> R <> [] ->
+    tb (Chain 3 :: R) = 6.
+Proof.
+  intros R HR HNil; apply tb_six_of_loops_and_three; assumption.
+Qed.
+
+(** Case (i) of Allcock's Theorem 1.1. A three-chain over two or more loops
+    with a controlled value of two or more: opening a shortest loop attains
+    the value, so it is an optimal opening. *)
+Theorem case_i :
+  forall L l rest,
+    wf (Chain 3 :: L) ->
+    forallb is_loop_b L = true ->
+    In (Loop l, rest) (selections L) ->
+    (forall C, In C L -> (l <= csize C)%nat) ->
+    (2 <= length L)%nat ->
+    2 <= cval (Chain 3 :: L) ->
+    value_open (Loop l, Chain 3 :: rest) = cval (Chain 3 :: L) /\
+    (forall q, In q (selections (Chain 3 :: L)) ->
+       value_open (Loop l, Chain 3 :: rest) <= value_open q).
+Proof.
+  intros L l rest Hw HL Hsel Hmin Hlen Hc.
+  (* the opening is a selection of the whole position *)
+  assert (Hp : In (Loop l, Chain 3 :: rest) (selections (Chain 3 :: L))).
+  { simpl selections; right.
+    apply (in_map (fun p => (fst p, Chain 3 :: snd p)) (selections L)
+                  (Loop l, rest)); exact Hsel. }
+  (* what is left of the loops *)
+  pose proof (selections_perm L (Loop l, rest) Hsel) as Hperm;
+    cbn [fst snd] in Hperm.
+  assert (HLr : forallb is_loop_b rest = true).
+  { rewrite forallb_forall in HL |- *; intros C HC; apply HL.
+    eapply Permutation_in; [exact Hperm | right; exact HC]. }
+  assert (Hlr : length rest = pred (length L)).
+  { pose proof (selections_length L (Loop l, rest) Hsel) as H;
+      cbn [snd] in H; lia. }
+  assert (HrNil : rest <> [])
+    by (destruct rest; simpl in Hlr; [lia | discriminate]).
+  assert (Hminr : forall C, In C rest -> (l <= csize C)%nat).
+  { intros C HC; apply Hmin.
+    eapply Permutation_in; [exact Hperm | right; exact HC]. }
+  (* the bonus is six on both sides of the opening *)
+  assert (Htb1 : tb (Chain 3 :: rest) = 6)
+    by (apply tb_three_over_loops; assumption).
+  assert (Htb2 : tb (Loop l :: Chain 3 :: rest) = 6).
+  { rewrite <- (tb_perm (Chain 3 :: Loop l :: rest)) by apply perm_swap.
+    apply tb_six.
+    - apply (proj2 (existsb_exists is_loop_b _)).
+      exists (Loop l); split; [right; left; reflexivity | reflexivity].
+    - apply (proj2 (existsb_exists is_3chain_b _)).
+      exists (Chain 3); split; [left; reflexivity | reflexivity].
+    - rewrite forallb_forall; intros x Hx.
+      destruct Hx as [<- | [<- | Hx]]; [reflexivity | reflexivity |].
+      rewrite forallb_forall in HLr; rewrite (HLr x Hx); reflexivity. }
+  (* the controlled value of the remainder *)
+  assert (Hcb : cbase L = (Z.of_nat l - 8) + cbase rest).
+  { rewrite (selections_cbase L (Loop l, rest) Hsel); cbn [fst snd].
+    rewrite weight_loop_len; reflexivity. }
+  assert (HcG : cval (Chain 3 :: L) = 5 + cbase L).
+  { unfold cval; rewrite cbase_cons, weight_chain; simpl csize.
+    rewrite (tb_three_over_loops L HL);
+      [lia | intros HH; rewrite HH in Hlen; simpl in Hlen; lia]. }
+  assert (Hcr : cval (Chain 3 :: rest) = 5 + cbase rest).
+  { unfold cval; rewrite cbase_cons, weight_chain, Htb1; simpl csize; lia. }
+  assert (Hge4 : 4 <= cval (Chain 3 :: rest)).
+  { destruct (Nat.le_gt_cases 8 l) as [Hbig | Hsmall].
+    - (* every remaining loop is large, so the base weight is nonnegative *)
+      assert (Hall8 : forall C, In C rest -> (8 <= csize C)%nat)
+        by (intros C HC; pose proof (Hminr C HC); lia).
+      pose proof (allbig_cbase rest (allbig_loops_ge8 rest HLr Hall8)); lia.
+    - (* a short loop, which by evenness is a four-loop or a six-loop, and
+         there the hypothesis on the whole position bites *)
+      assert (HinL : In (Loop l) L).
+      { pose proof (selections_In L (Loop l, rest) Hsel) as H;
+          cbn [fst] in H; exact H. }
+      assert (HwfL : wf_comp (Loop l)).
+      { pose proof (wf_tail (Chain 3) L Hw) as HwL.
+        unfold wf in HwL; rewrite Forall_forall in HwL; apply HwL; exact HinL. }
+      destruct HwfL as [H4 Hev].
+      apply Nat.even_spec in Hev; destruct Hev as [k Hk].
+      assert (Hzl : Z.of_nat l <= 6) by lia.
+      lia. }
+  (* now the criterion applies *)
+  apply (open_loop_optimal_ge4 (Chain 3 :: L) l (Chain 3 :: rest) Hw Hp);
+    [| exact Hge4].
+  rewrite Htb2, Htb1; reflexivity.
+Qed.
+
+(** * Optimality as a comparison of closed forms *)
+
+(** What an opening is worth, read off the closed form of the remainder
+    rather than off the recursion. *)
+Theorem value_open_closed :
+  forall G p,
+    wf G -> In p (selections G) -> snd p <> [] ->
+    value_open p = vopen (fst p) (v41 (snd p)).
+Proof.
+  intros G p Hw Hp HrNil; unfold value_open.
+  rewrite (value_complete (snd p)); [reflexivity | | exact HrNil].
+  exact (proj2 (selections_wf G p Hw Hp)).
+Qed.
+
+(** So an opening is optimal exactly when the two closed forms agree, and
+    every case of Theorem 1.1 is an arithmetic comparison between [vopen] of
+    one [v41] and another. *)
+Theorem opening_optimal_closed_form :
+  forall G p,
+    wf G -> G <> [] -> In p (selections G) -> snd p <> [] ->
+    (vopen (fst p) (v41 (snd p)) = v41 G <->
+     forall q, In q (selections G) -> value_open p <= value_open q).
+Proof.
+  intros G p Hw HNil Hp HrNil.
+  rewrite <- (value_open_closed G p Hw Hp HrNil).
+  rewrite <- (value_complete G Hw HNil).
+  split.
+  - intros H; apply (proj1 (opener_optimal_iff G p HNil Hp)); symmetry; exact H.
+  - intros H; symmetry.
+    apply (proj2 (opener_optimal_iff G p HNil Hp)); exact H.
+Qed.
+
+(** The comparison as a decision procedure on a named opening. *)
+Definition opening_optimal_b (G : position) (p : comp * position) : bool :=
+  Z.eqb (vopen (fst p) (v41 (snd p))) (v41 G).
+
+Theorem opening_optimal_b_sound :
+  forall G p,
+    wf G -> G <> [] -> In p (selections G) -> snd p <> [] ->
+    opening_optimal_b G p = true ->
+    forall q, In q (selections G) -> value_open p <= value_open q.
+Proof.
+  intros G p Hw HNil Hp HrNil Hb.
+  apply (proj1 (opening_optimal_closed_form G p Hw HNil Hp HrNil)).
+  apply Z.eqb_eq; exact Hb.
+Qed.
+
+(** And it is complete: an optimal opening passes the test. *)
+Theorem opening_optimal_b_complete :
+  forall G p,
+    wf G -> G <> [] -> In p (selections G) -> snd p <> [] ->
+    (forall q, In q (selections G) -> value_open p <= value_open q) ->
+    opening_optimal_b G p = true.
+Proof.
+  intros G p Hw HNil Hp HrNil Hmin.
+  apply Z.eqb_eq.
+  apply (proj2 (opening_optimal_closed_form G p Hw HNil Hp HrNil)); exact Hmin.
 Qed.
 
 (** * The criterion is not vacuous *)
