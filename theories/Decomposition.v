@@ -225,12 +225,18 @@ Qed.
     computes them from a board. This file computes them.
 
     [comp_from] walks from a box to a neighbour not yet visited and keeps
-    going. [comp_from_walk] proves the run it returns is a [chain_walk], so a
-    run of three or more boxes is a wellformed [Chain] by
-    [Decomposition.chain_comp_wf], and one that closes back on its start is a
-    wellformed [Loop] by [loop_comp_wf]. [comp_from_nodup] proves it visits no
-    box twice, so peeling components off terminates and the pieces are
-    disjoint.
+    going, in both directions: a single walk leaves the start in one direction
+    only, so a run whose start box is interior would come back cut in half.
+    [comp_from_walk] proves the run it returns is a [chain_walk], so a run of
+    three or more boxes is a wellformed [Chain] by [chain_comp_wf], and one
+    that closes back on its start is a wellformed [Loop] by [loop_comp_wf].
+    [comp_from_nodup] proves it visits no box twice, so peeling components off
+    terminates and the pieces are disjoint.
+
+    [comp_from_closed] is what makes the run the whole component rather than
+    part of one: nothing adjacent to it is left outside. It asks each box for
+    at most two neighbours, which is what a chain or a loop gives, and
+    [board_comp_from_closed] reads that off the board through [loony_degrees].
 
     The adjacency is a parameter: any Boolean relation refining [cadj] will
     do, so the same extractor serves the undrawn-wall graph of a board and any
@@ -267,6 +273,17 @@ Proof.
   - intros H Hin; apply bmem_true_iff in Hin; congruence.
   - intros H; destruct (bmem b l) eqn:E;
       [apply bmem_true_iff in E; contradiction | reflexivity].
+Qed.
+
+(** Neighbouring boxes are neighbours in either order. *)
+Lemma cadj_sym : forall b c, cadj b c -> cadj c b.
+Proof.
+  intros [r1 c1] [r2 c2] H; unfold cadj in H |- *; cbn [fst snd] in *.
+  destruct H as [[H1 [H2 | H2]] | [H1 [H2 | H2]]].
+  - left; split; [lia | right; lia].
+  - left; split; [lia | left; lia].
+  - right; split; [lia | right; lia].
+  - right; split; [lia | left; lia].
 Qed.
 
 Section Extract.
@@ -310,9 +327,19 @@ Fixpoint tail_of (fuel : nat) (vis : list box) (b : box) : list box :=
       end
   end.
 
-(** The component reached from [b]. The start is visited from the outset, so
-    the walk cannot return to it. *)
-Definition comp_from (b : box) : list box := b :: tail_of (length U) [b] b.
+(** The two arms of the run through [b]. A single walk leaves [b] in one
+    direction only, so a run whose start box is interior would be cut in half:
+    on the three boxes [(0,1)], [(0,0)], [(1,0)] a walk from [(0,0)] returns two
+    of them and the third is peeled off separately. [arm_back] takes the other
+    direction, with the first arm already visited so the walk cannot retrace
+    it, and [comp_from] glues the two together through [b]. *)
+Definition arm_fwd (b : box) : list box := tail_of (length U) [b] b.
+
+Definition arm_back (b : box) : list box :=
+  tail_of (length U) (b :: arm_fwd b) b.
+
+Definition comp_from (b : box) : list box :=
+  rev (arm_back b) ++ b :: arm_fwd b.
 
 (** * The run is a walk *)
 
@@ -325,10 +352,45 @@ Proof.
   split; [apply A_cadj; exact HA | apply IH].
 Qed.
 
+(** A walk read from its own head, so that the two arms can be glued. *)
+Definition chain_walk_list (l : list box) : Prop :=
+  match l with [] => True | b :: r => chain_walk b r end.
+
+(** Reversing one arm and running the other from the join is again a walk,
+    since neighbouring boxes are neighbours in either order. *)
+Lemma chain_walk_rev_app :
+  forall l b m,
+    chain_walk b l -> chain_walk b m ->
+    chain_walk_list (rev l ++ b :: m).
+Proof.
+  induction l as [|x l IH]; intros b m Hl Hm; [exact Hm|].
+  destruct Hl as [Hbx Hxl].
+  cbn [rev]; rewrite <- app_assoc; cbn [app].
+  apply (IH x (b :: m) Hxl).
+  split; [apply cadj_sym; exact Hbx | exact Hm].
+Qed.
+
 (** So the extracted component is a run of neighbouring boxes. *)
-Theorem comp_from_walk :
-  forall b, chain_walk b (tail_of (length U) [b] b).
-Proof. intros b; apply tail_of_walk. Qed.
+Theorem comp_from_walk : forall b, chain_walk_list (comp_from b).
+Proof.
+  intros b; unfold comp_from.
+  apply chain_walk_rev_app; apply tail_of_walk.
+Qed.
+
+(** It is never empty, since it runs through its own start. *)
+Lemma comp_from_cons :
+  forall b, exists b0 l, comp_from b = b0 :: l.
+Proof.
+  intros b; unfold comp_from.
+  destruct (rev (arm_back b)) as [|x r] eqn:E.
+  - exists b, (arm_fwd b); reflexivity.
+  - exists x, (r ++ b :: arm_fwd b); reflexivity.
+Qed.
+
+Lemma In_comp_from_start : forall b, In b (comp_from b).
+Proof.
+  intros b; unfold comp_from; apply in_or_app; right; left; reflexivity.
+Qed.
 
 (** * The run repeats no box *)
 
@@ -353,12 +415,27 @@ Proof.
   apply (tail_of_avoids f (c :: vis) c c); left; reflexivity.
 Qed.
 
-(** The start does not recur either, so the whole component is repeat-free. *)
+Lemma In_rev_arm_back :
+  forall b x, In x (rev (arm_back b)) -> In x (arm_back b).
+Proof.
+  intros b x Hx.
+  apply (Permutation_in x (Permutation_sym (Permutation_rev (arm_back b))));
+    exact Hx.
+Qed.
+
+(** Neither arm revisits the start or the other arm, so the whole component is
+    repeat-free. *)
 Theorem comp_from_nodup : forall b, NoDup (comp_from b).
 Proof.
-  intros b; unfold comp_from; constructor.
-  - apply (tail_of_avoids (length U) [b] b b); left; reflexivity.
-  - apply tail_of_nodup.
+  intros b; unfold comp_from; apply NoDup_app_disj.
+  - apply (Permutation_NoDup (Permutation_rev (arm_back b))).
+    apply tail_of_nodup.
+  - constructor;
+      [apply (tail_of_avoids (length U) [b] b b); left; reflexivity
+       | apply tail_of_nodup].
+  - intros x Hx Hy.
+    exact (tail_of_avoids (length U) (b :: arm_fwd b) b x Hy
+             (In_rev_arm_back b x Hx)).
 Qed.
 
 (** * The run stays on the board *)
@@ -374,8 +451,12 @@ Qed.
 
 Theorem comp_from_incl : forall b, In b U -> incl (comp_from b) U.
 Proof.
-  intros b Hb x Hx; destruct Hx as [<- | Hx];
-    [exact Hb | apply (tail_of_incl (length U) [b] b); exact Hx].
+  intros b Hb x Hx; unfold comp_from in Hx.
+  apply in_app_or in Hx; destruct Hx as [Hx | Hx].
+  - apply (tail_of_incl (length U) (b :: arm_fwd b) b).
+    exact (In_rev_arm_back b x Hx).
+  - destruct Hx as [<- | Hx];
+      [exact Hb | apply (tail_of_incl (length U) [b] b); exact Hx].
 Qed.
 
 (** A component is no longer than the board. *)
@@ -452,6 +533,223 @@ Proof.
   - specialize (IH Hl); destruct (negb (bmem a c)); simpl; lia.
 Qed.
 
+(** * The run is maximal *)
+
+(** A walk can only be the whole component when no box has a third neighbour to
+    branch into. On a loony board that is automatic: a box in a chain or a loop
+    has exactly two of its four walls undrawn. Under that bound the extracted
+    run is closed under adjacency, and since it holds the box it started from
+    it is the entire connected component. *)
+
+Lemma pick_none :
+  forall vis b,
+    pick vis b = None ->
+    forall c, In c U -> A b c = true -> In c vis.
+Proof.
+  intros vis b H c HU HA.
+  destruct (bmem c vis) eqn:E; [apply bmem_true_iff; exact E|].
+  exfalso; unfold pick in H.
+  destruct (filter (fun x => A b x && negb (bmem x vis))%bool U) eqn:Ef;
+    [|discriminate].
+  assert (Hin : In c (filter (fun x => A b x && negb (bmem x vis))%bool U))
+    by (apply filter_In; split; [exact HU | rewrite HA, E; reflexivity]).
+  rewrite Ef in Hin; destruct Hin.
+Qed.
+
+(** With at most two neighbours, a third one has to coincide with one of the
+    first two. *)
+Lemma nbr_pigeonhole :
+  forall b x y z,
+    NoDup U ->
+    (length (filter (A b) U) <= 2)%nat ->
+    In x U -> In y U -> In z U ->
+    A b x = true -> A b y = true -> A b z = true ->
+    x <> y -> x <> z -> y = z.
+Proof.
+  intros b x y z HU Hdeg Hx Hy Hz Hax Hay Haz Hxy Hxz.
+  destruct (beqb y z) eqn:Eyz; [apply beqb_true_iff; exact Eyz|].
+  exfalso.
+  assert (Hyz : y <> z)
+    by (intros ->; rewrite beqb_refl in Eyz; discriminate).
+  assert (Hnd : NoDup [x; y; z]).
+  { constructor; [cbn; intros [H | [H | []]]; congruence|].
+    constructor; [cbn; intros [H | []]; congruence|].
+    constructor; [cbn; intros [] | constructor]. }
+  assert (Hincl : incl [x; y; z] (filter (A b) U)).
+  { intros w Hw; apply filter_In.
+    destruct Hw as [<- | [<- | [<- | []]]]; split; assumption. }
+  pose proof (NoDup_incl_length Hnd Hincl) as Hlen; cbn [length] in Hlen; lia.
+Qed.
+
+(** The fuel outlasts the walk: each step banks a fresh box of the board, so a
+    walk that still has somewhere to go still has fuel to get there. *)
+Lemma fuel_remains :
+  forall vis d,
+    NoDup vis -> incl vis U -> In d U -> ~ In d vis ->
+    (length vis < length U)%nat.
+Proof.
+  intros vis d Hnd Hincl HdU Hdv.
+  destruct (Nat.le_gt_cases (length U) (length vis)) as [Hle | Hlt]; [|lia].
+  exfalso; apply Hdv.
+  apply (NoDup_length_incl Hnd Hle Hincl); exact HdU.
+Qed.
+
+(** The forward walk leaves nothing adjacent to it outside what it has seen. *)
+Lemma tail_of_closed :
+  forall fuel vis b,
+    NoDup U ->
+    (forall c, In c U -> (length (filter (A c) U) <= 2)%nat) ->
+    (forall x y, A x y = A y x) ->
+    NoDup vis -> incl vis U ->
+    (length U < length vis + fuel)%nat ->
+    In b U -> In b vis ->
+    forall x y,
+      In x (tail_of fuel vis b) -> In y U -> A x y = true ->
+      In y (vis ++ tail_of fuel vis b).
+Proof.
+  induction fuel as [|f IH];
+    intros vis b HU Hdeg Hsym Hnd Hincl Hfuel HbU Hbv x y Hx Hy HA;
+    cbn [tail_of] in Hx |- *; [destruct Hx|].
+  destruct (pick vis b) as [c|] eqn:Ep; [|destruct Hx].
+  destruct (pick_spec vis b c Ep) as [HcU [HAbc Hcv]].
+  assert (Hnd' : NoDup (c :: vis)) by (constructor; assumption).
+  assert (Hincl' : incl (c :: vis) U)
+    by (intros w [<- | Hw]; [exact HcU | apply Hincl; exact Hw]).
+  assert (Hfuel' : (length U < length (c :: vis) + f)%nat)
+    by (cbn [length]; lia).
+  destruct Hx as [<- | Hx].
+  - (* the box just picked: its neighbours are the one behind and the next *)
+    destruct (pick (c :: vis) c) as [d|] eqn:Ed.
+    + destruct (pick_spec (c :: vis) c d Ed) as [HdU [HAcd Hdv]].
+      assert (Hbd : b <> d) by (intros <-; apply Hdv; right; exact Hbv).
+      assert (HAcb : A c b = true) by (rewrite Hsym; exact HAbc).
+      destruct (beqb y b) eqn:Eyb.
+      * apply beqb_true_iff in Eyb; subst y.
+        apply in_or_app; left; exact Hbv.
+      * assert (Hyb : b <> y)
+          by (intros <-; rewrite beqb_refl in Eyb; discriminate).
+        assert (Hyd : d = y)
+          by (apply (nbr_pigeonhole c b d y HU (Hdeg c HcU) HbU HdU Hy
+                       HAcb HAcd HA Hbd Hyb)).
+        subst d.
+        (* the walk still has fuel, so it really does step to [y] *)
+        destruct f as [|f'].
+        -- exfalso.
+           pose proof (fuel_remains (c :: vis) y Hnd' Hincl' Hy Hdv) as Hlt.
+           cbn [length] in Hlt, Hfuel; lia.
+        -- apply in_or_app; right; right.
+           cbn [tail_of]; rewrite Ed; left; reflexivity.
+    + assert (Hin : In y (c :: vis))
+        by (apply (pick_none (c :: vis) c Ed y Hy); exact HA).
+      destruct Hin as [<- | Hin].
+      * apply in_or_app; right; left; reflexivity.
+      * apply in_or_app; left; exact Hin.
+  - (* further along: the induction hypothesis covers it *)
+    assert (Hrec : In y ((c :: vis) ++ tail_of f (c :: vis) c))
+      by (apply (IH (c :: vis) c HU Hdeg Hsym Hnd' Hincl' Hfuel' HcU
+                   (or_introl eq_refl) x y Hx Hy HA)).
+    apply in_app_or in Hrec; destruct Hrec as [Hrec | Hrec].
+    + destruct Hrec as [<- | Hrec].
+      * apply in_or_app; right; left; reflexivity.
+      * apply in_or_app; left; exact Hrec.
+    + apply in_or_app; right; right; exact Hrec.
+Qed.
+
+(** * The component is closed under adjacency *)
+
+Lemma tail_of_head :
+  forall fuel vis b d,
+    (1 <= fuel)%nat -> pick vis b = Some d ->
+    exists r, tail_of fuel vis b = d :: r.
+Proof.
+  intros [|f] vis b d Hf Hp; [lia|].
+  cbn [tail_of]; rewrite Hp; eexists; reflexivity.
+Qed.
+
+Lemma In_length_pos : forall b, In b U -> (1 <= length U)%nat.
+Proof. intros b H; destruct U; [destruct H | cbn [length]; lia]. Qed.
+
+Theorem comp_from_closed :
+  forall b,
+    NoDup U ->
+    (forall c, In c U -> (length (filter (A c) U) <= 2)%nat) ->
+    (forall x y, A x y = A y x) ->
+    In b U ->
+    forall x y,
+      In x (comp_from b) -> In y U -> A x y = true -> In y (comp_from b).
+Proof.
+  intros b HU Hdeg Hsym HbU x y Hx Hy HA.
+  assert (Hfwd : forall z, In z (arm_fwd b) -> In z (comp_from b)).
+  { intros z Hz; unfold comp_from; apply in_or_app; right; right; exact Hz. }
+  assert (Hback : forall z, In z (arm_back b) -> In z (comp_from b)).
+  { intros z Hz; unfold comp_from; apply in_or_app; left.
+    apply (Permutation_in z (Permutation_rev (arm_back b))); exact Hz. }
+  assert (Hb1 : NoDup [b]) by (constructor; [intros [] | constructor]).
+  assert (Hi1 : incl [b] U) by (intros w [<- | []]; exact HbU).
+  assert (Hf1 : (length U < length [b] + length U)%nat) by (cbn [length]; lia).
+  assert (HndF : NoDup (b :: arm_fwd b)).
+  { constructor;
+      [apply (tail_of_avoids (length U) [b] b b); left; reflexivity
+       | apply tail_of_nodup]. }
+  assert (HiF : incl (b :: arm_fwd b) U).
+  { intros w [<- | Hw];
+      [exact HbU | apply (tail_of_incl (length U) [b] b); exact Hw]. }
+  assert (HfF : (length U < length (b :: arm_fwd b) + length U)%nat)
+    by (cbn [length]; lia).
+  unfold comp_from in Hx; apply in_app_or in Hx; destruct Hx as [Hx | Hx].
+  - (* x lies on the backward arm *)
+    assert (Hx' : In x (arm_back b)) by (apply In_rev_arm_back; exact Hx).
+    assert (Hin : In y ((b :: arm_fwd b) ++ arm_back b)).
+    { unfold arm_back in Hx' |- *.
+      apply (tail_of_closed (length U) (b :: arm_fwd b) b HU Hdeg Hsym
+               HndF HiF HfF HbU (or_introl eq_refl) x y Hx' Hy HA). }
+    apply in_app_or in Hin; destruct Hin as [Hin | Hin];
+      [| apply Hback; exact Hin].
+    destruct Hin as [<- | Hin];
+      [apply In_comp_from_start | apply Hfwd; exact Hin].
+  - destruct Hx as [<- | Hx].
+    + (* x is the box the walk started from *)
+      destruct (pick (b :: arm_fwd b) b) as [d|] eqn:Ed.
+      * destruct (pick_spec (b :: arm_fwd b) b d Ed) as [HdU [HAbd Hdv]].
+        assert (HL1 : (1 <= length U)%nat) by (apply (In_length_pos b); exact HbU).
+        assert (Hdin : In d (arm_back b)).
+        { unfold arm_back.
+          destruct (tail_of_head (length U) (b :: arm_fwd b) b d HL1 Ed)
+            as [r Hr]; rewrite Hr; left; reflexivity. }
+        destruct (pick [b] b) as [c|] eqn:Ec.
+        -- destruct (pick_spec [b] b c Ec) as [HcU [HAbc _]].
+           assert (Hcin : In c (arm_fwd b)).
+           { unfold arm_fwd.
+             destruct (tail_of_head (length U) [b] b c HL1 Ec) as [r Hr];
+               rewrite Hr; left; reflexivity. }
+           assert (Hcd : c <> d)
+             by (intros <-; apply Hdv; right; exact Hcin).
+           destruct (beqb y c) eqn:Eyc.
+           ++ apply beqb_true_iff in Eyc; subst y; apply Hfwd; exact Hcin.
+           ++ assert (Hyc : c <> y)
+                by (intros <-; rewrite beqb_refl in Eyc; discriminate).
+              assert (Hyd : d = y)
+                by (apply (nbr_pigeonhole b c d y HU (Hdeg b HbU) HcU HdU Hy
+                             HAbc HAbd HA Hcd Hyc)).
+              subst d; apply Hback; exact Hdin.
+        -- (* nothing leaves the start at all *)
+           assert (Hin : In y [b])
+             by (apply (pick_none [b] b Ec y Hy HA)).
+           destruct Hin as [<- | []]; apply In_comp_from_start.
+      * assert (Hin : In y (b :: arm_fwd b))
+          by (apply (pick_none (b :: arm_fwd b) b Ed y Hy HA)).
+        destruct Hin as [<- | Hin];
+          [apply In_comp_from_start | apply Hfwd; exact Hin].
+    + (* x lies on the forward arm *)
+      assert (Hin : In y ([b] ++ arm_fwd b)).
+      { unfold arm_fwd in Hx |- *.
+        apply (tail_of_closed (length U) [b] b HU Hdeg Hsym
+                 Hb1 Hi1 Hf1 HbU (or_introl eq_refl) x y Hx Hy HA). }
+      apply in_app_or in Hin; destruct Hin as [Hin | Hin].
+      * destruct Hin as [<- | []]; apply In_comp_from_start.
+      * apply Hfwd; exact Hin.
+Qed.
+
 End Extract.
 
 (** * The decomposition *)
@@ -488,9 +786,10 @@ Proof.
   induction fuel as [|f IH]; intros rem c Hc; simpl in Hc; [destruct Hc|].
   destruct rem as [|b rest]; [destruct Hc|].
   destruct Hc as [<- | Hc].
-  - exists b, (tail_of (b :: rest) A (length (b :: rest)) [b] b).
-    repeat split.
-    + apply (comp_from_walk (b :: rest) A A_cadj).
+  - destruct (comp_from_cons (b :: rest) A b) as [b0 [l Hb0]].
+    exists b0, l; split; [exact Hb0 | split].
+    + pose proof (comp_from_walk (b :: rest) A A_cadj b) as Hw.
+      rewrite Hb0 in Hw; exact Hw.
     + apply (comp_from_nodup (b :: rest) A).
   - apply (IH (drop_all (comp_from (b :: rest) A b) (b :: rest)) c); exact Hc.
 Qed.
@@ -890,7 +1189,7 @@ Proof.
     + apply bmem_false_iff in Ex.
       assert (Hin : In x (drop_all c (b :: r)))
         by (apply In_drop_all; assumption).
-      assert (Hb : In b c) by (unfold c, comp_from; left; reflexivity).
+      assert (Hb : In b c) by (unfold c; apply In_comp_from_start).
       assert (Hshort : (length (drop_all c (b :: r)) < length (b :: r))%nat)
         by (apply (drop_all_shorter c (b :: r) b); [exact Hb | left; reflexivity]).
       assert (Hle : (length (drop_all c (b :: r)) <= f)%nat)
@@ -1111,6 +1410,101 @@ Qed.
 
 Lemma NoDup_open_boxes : forall m n d, NoDup (open_boxes m n d).
 Proof. intros m n d; apply NoDup_filter, NoDup_boxes. Qed.
+
+(** * The board adjacency is symmetric *)
+
+Lemma cadjb_sym : forall b c, cadjb b c = cadjb c b.
+Proof.
+  intros [r1 c1] [r2 c2]; unfold cadjb; cbn [fst snd].
+  rewrite (Nat.eqb_sym r2 r1), (Nat.eqb_sym c2 c1).
+  rewrite (orb_comm (c2 =? S c1) (c1 =? S c2)).
+  rewrite (orb_comm (r2 =? S r1) (r1 =? S r2)).
+  reflexivity.
+Qed.
+
+Lemma In_shared :
+  forall b c e, In e (shared b c) <-> In e (box_edges b) /\ In e (box_edges c).
+Proof.
+  intros b c e; unfold shared; rewrite filter_In; split.
+  - intros [H1 H2]; split; [exact H1|].
+    apply existsb_exists in H2; destruct H2 as [f [Hf He]].
+    apply edge_eqb_true_iff in He; subst f; exact Hf.
+  - intros [H1 H2]; split; [exact H1|].
+    apply existsb_exists; exists e; split; [exact H2 | apply edge_eqb_refl].
+Qed.
+
+Lemma existsb_same_elems :
+  forall (f : edge -> bool) l1 l2,
+    (forall x, In x l1 <-> In x l2) -> existsb f l1 = existsb f l2.
+Proof.
+  intros f l1 l2 H.
+  destruct (existsb f l1) eqn:E1; destruct (existsb f l2) eqn:E2;
+    try reflexivity.
+  - apply existsb_exists in E1; destruct E1 as [x [Hx Hf]].
+    assert (Hbad : existsb f l2 = true)
+      by (apply existsb_exists; exists x; split; [apply H; exact Hx | exact Hf]).
+    congruence.
+  - apply existsb_exists in E2; destruct E2 as [x [Hx Hf]].
+    assert (Hbad : existsb f l1 = true)
+      by (apply existsb_exists; exists x; split; [apply H; exact Hx | exact Hf]).
+    congruence.
+Qed.
+
+(** Two boxes are joined by the same wall whichever way round they are named. *)
+Lemma adj_board_sym : forall d b c, adj_board d b c = adj_board d c b.
+Proof.
+  intros d b c; unfold adj_board.
+  rewrite (cadjb_sym b c).
+  rewrite (existsb_same_elems (fun e => negb (emem e d))
+             (shared b c) (shared c b))
+    by (intros x; rewrite !In_shared; tauto).
+  destruct (cadjb c b), (box_done d b), (box_done d c),
+           (existsb (fun e => negb (emem e d)) (shared c b)); reflexivity.
+Qed.
+
+(** * Components of a board are whole *)
+
+(** A box of a chain or a loop has exactly two of its four walls undrawn, so on
+    a position the endgame theory applies to, every open box has at most two
+    open neighbours. Under that bound the extracted run is closed under
+    adjacency: nothing joined to it was left outside. *)
+Definition loony_degrees (m n : nat) (d : list edge) : Prop :=
+  forall c, In c (open_boxes m n d) ->
+    (length (filter (adj_board d c) (open_boxes m n d)) <= 2)%nat.
+
+Theorem board_comp_from_closed :
+  forall m n d b,
+    loony_degrees m n d ->
+    In b (open_boxes m n d) ->
+    forall x y,
+      In x (comp_from (open_boxes m n d) (adj_board d) b) ->
+      In y (open_boxes m n d) -> adj_board d x y = true ->
+      In y (comp_from (open_boxes m n d) (adj_board d) b).
+Proof.
+  intros m n d b Hdeg Hb x y Hx Hy HA.
+  apply (comp_from_closed (open_boxes m n d) (adj_board d) b
+           (NoDup_open_boxes m n d) Hdeg (adj_board_sym d) Hb x y Hx Hy HA).
+Qed.
+
+(** And it holds the box it started from, so it is exactly the set of boxes
+    joined to that one: the extractor returns whole components, not fragments
+    of them. *)
+Corollary board_comp_from_component :
+  forall m n d b,
+    loony_degrees m n d ->
+    In b (open_boxes m n d) ->
+    In b (comp_from (open_boxes m n d) (adj_board d) b) /\
+    incl (comp_from (open_boxes m n d) (adj_board d) b) (open_boxes m n d) /\
+    (forall x y,
+       In x (comp_from (open_boxes m n d) (adj_board d) b) ->
+       In y (open_boxes m n d) -> adj_board d x y = true ->
+       In y (comp_from (open_boxes m n d) (adj_board d) b)).
+Proof.
+  intros m n d b Hdeg Hb; repeat split.
+  - apply In_comp_from_start.
+  - apply comp_from_incl; exact Hb.
+  - apply (board_comp_from_closed m n d b Hdeg Hb).
+Qed.
 
 Definition board_loony (m n : nat) (d : list edge) : bool :=
   loony_boardb (adj_board d) (open_boxes m n d).
