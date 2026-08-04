@@ -1388,6 +1388,92 @@ Proof.
   apply perm_concat, loony_split; exact Hl.
 Qed.
 
+(** * Keeping the short components *)
+
+(** [loops_of] and [chains_of] drop anything under three boxes, so a board
+    holding a chain of one or two presents a position that accounts for fewer
+    boxes than are open. [schains_of] keeps them: everything that is not a
+    genuine loop is a chain, however short, and [decompose_ssize] then accounts
+    for every open box with no hypothesis on the board at all. What comes out
+    is [swf] rather than [wf], which is exactly the class [ShortChains] settles. *)
+
+Definition schains_of (A : box -> box -> bool) (U : list box)
+  : list (list box) :=
+  filter (fun c => negb (cyclicb c && (3 <=? length c)) && (1 <=? length c))%bool
+         (decompose A U).
+
+Lemma comps_position_swf :
+  forall loops chains,
+    (forall bs, In bs loops -> cyclic bs /\ (3 <= length bs)%nat) ->
+    (forall bs, In bs chains -> (1 <= length bs)%nat) ->
+    swf (comps_position loops chains).
+Proof.
+  intros loops chains Hl Hc; unfold swf, comps_position.
+  apply Forall_app; split; rewrite Forall_map, Forall_forall.
+  - intros bs Hbs; destruct (Hl bs Hbs) as [Hcyc H3].
+    cbn [swf_comp]; destruct (loop_comp_wf bs Hcyc H3) as [H4 Hev].
+    split; assumption.
+  - intros bs Hbs; cbn [swf_comp]; apply Hc; exact Hbs.
+Qed.
+
+(** Every piece the peeling returns holds at least the box it started from. *)
+Lemma peel_nonnil :
+  forall A fuel rem c, In c (peel A fuel rem) -> c <> [].
+Proof.
+  intros A; induction fuel as [|f IH]; intros rem c Hc; simpl in Hc;
+    [destruct Hc|].
+  destruct rem as [|b rest]; [destruct Hc|].
+  destruct Hc as [<- | Hc].
+  - intros Hnil.
+    pose proof (In_comp_from_start (b :: rest) A b) as Hin.
+    rewrite Hnil in Hin; destruct Hin.
+  - apply (IH (drop_all (comp_from (b :: rest) A b) (b :: rest)) c); exact Hc.
+Qed.
+
+Theorem decompose_swf :
+  forall A U, swf (comps_position (loops_of A U) (schains_of A U)).
+Proof.
+  intros A U; apply comps_position_swf.
+  - intros c Hc; unfold loops_of in Hc; apply filter_In in Hc.
+    destruct Hc as [_ H]; apply andb_true_iff in H; destruct H as [H1 H2].
+    split; [apply cyclicb_cyclic; exact H1 | apply Nat.leb_le; exact H2].
+  - intros c Hc; unfold schains_of in Hc; apply filter_In in Hc.
+    destruct Hc as [_ H]; apply andb_true_iff in H; destruct H as [_ H2].
+    apply Nat.leb_le; exact H2.
+Qed.
+
+(** Nothing is dropped now, so the two lists split the decomposition. *)
+Lemma sloony_split :
+  forall A U,
+    Permutation (loops_of A U ++ schains_of A U) (decompose A U).
+Proof.
+  intros A U; unfold loops_of, schains_of.
+  apply filter_split_perm.
+  - intros x Hx.
+    assert (Hne : x <> []) by (apply (peel_nonnil A (length U) U); exact Hx).
+    assert (Hlen : (1 <=? length x)%nat = true)
+      by (destruct x; [contradiction | apply Nat.leb_le; cbn [length]; lia]).
+    destruct (cyclicb x && (3 <=? length x))%bool eqn:E.
+    + left; exact E.
+    + right; cbv beta.
+      apply andb_true_iff; split;
+        [apply negb_true_iff; exact E | exact Hlen].
+  - intros x Hx Hp; cbv beta in Hp |- *.
+    apply andb_false_iff; left; apply negb_false_iff; exact Hp.
+Qed.
+
+(** So the position accounts for every open box, whatever the board looks
+    like. *)
+Theorem decompose_ssize :
+  forall A U,
+    NoDup U ->
+    (size (comps_position (loops_of A U) (schains_of A U)) = length U)%nat.
+Proof.
+  intros A U HU; apply decomp_size.
+  eapply Permutation_trans; [| apply decompose_perm; exact HU].
+  apply perm_concat, sloony_split.
+Qed.
+
 (** * On the board *)
 
 Lemma NoDup_brow_dec :
@@ -1543,6 +1629,48 @@ Corollary reachable_loony_init :
     (size (board_position m n (laid (run m n init ms)))
      = length (open_boxes m n (laid (run m n init ms))))%nat.
 Proof. intros m n ms Hl H; apply (reachable_loony m n init ms Hl H). Qed.
+
+(** * The board, with its short components kept *)
+
+(** [board_position] drops any component under three boxes, so it accounts for
+    every open box only on a board where none is that short. [sboard_position]
+    keeps them, and accounts for every open box on any board at all. It is
+    [swf] rather than [wf], which is the class [GameTrees.ShortChains] settles:
+    [ShortChains.svalue_closed] computes its value and
+    [ShortChains.svalue_gt4_iff] answers the controller's loop test on it. *)
+Definition sboard_chains (m n : nat) (d : list edge) : list (list box) :=
+  schains_of (adj_board d) (open_boxes m n d).
+
+Definition sboard_position (m n : nat) (d : list edge) : position :=
+  comps_position (board_loops m n d) (sboard_chains m n d).
+
+Theorem sboard_position_swf : forall m n d, swf (sboard_position m n d).
+Proof.
+  intros m n d; unfold sboard_position, board_loops, sboard_chains.
+  apply decompose_swf.
+Qed.
+
+(** No hypothesis on the board is needed: every open box is accounted for. *)
+Theorem sboard_position_covers :
+  forall m n d,
+    (size (sboard_position m n d) = length (open_boxes m n d))%nat.
+Proof.
+  intros m n d; unfold sboard_position, board_loops, sboard_chains.
+  apply decompose_ssize, NoDup_open_boxes.
+Qed.
+
+(** So at any state legal play reaches, the rest of the game is a position the
+    capped theory computes, carrying exactly the boxes still open. *)
+Corollary reachable_short :
+  forall m n s ms,
+    legal m n s ms ->
+    swf (sboard_position m n (laid (run m n s ms))) /\
+    (size (sboard_position m n (laid (run m n s ms)))
+     = length (open_boxes m n (laid (run m n s ms))))%nat.
+Proof.
+  intros m n s ms _; split;
+    [apply sboard_position_swf | apply sboard_position_covers].
+Qed.
 
 (** ****************************************************************** *)
 (** The bridge between the two halves of the long chain rule.

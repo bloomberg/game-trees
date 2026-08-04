@@ -3347,3 +3347,223 @@ Proof.
     exfalso; rewrite (no_short_of_counts G Ha Hb) in Hs; discriminate.
   - left; apply chain1_opening_optimal; [exact Hw | lia].
 Qed.
+
+(** ****************************************************************** *)
+(** The controller's tests, for the capped recursion.
+
+    [DotsAndBoxes.value_gt4_iff] is Allcock's Theorem 1.4: an endgame is worth
+    more than four exactly when its controlled value is. Half of it is the
+    control bound and carries over at once. The other half asks that a
+    controlled value of at most four caps the endgame at four, and the argument
+    behind it does not: the classification it appeals to is stated for
+    wellformed positions.
+
+    What replaces it is the decomposition. [g_le_shift] bounds the short-chain
+    fold by what it started from less the boxes it hands over, and
+    [tb_longpart_le_stb] shows the long part's terminal bonus never exceeds the
+    whole position's. Together they cap the value at four, and
+    [svalue_gt4_iff] is Theorem 1.4 on every position the board can present. *)
+
+(** * The fold gives away what it is handed *)
+
+Theorem g_le_shift :
+  forall a b w,
+    0 <= w -> g a b w <= Z.max (w - (Z.of_nat a + 2 * Z.of_nat b)) 2.
+Proof.
+  intros a b w Hw.
+  remember (a + b)%nat as n eqn:En; revert a b w Hw En.
+  induction n as [|n IH]; intros a b w Hw En.
+  - assert (Ha : a = 0%nat) by lia; assert (Hb : b = 0%nat) by lia; subst.
+    rewrite g_00; cbn [Z.of_nat]; lia.
+  - destruct a as [|a']; destruct b as [|b'].
+    + rewrite g_00; cbn [Z.of_nat]; lia.
+    + rewrite g_0b.
+      assert (Hrec : g 0 b' w <= Z.max (w - (Z.of_nat 0 + 2 * Z.of_nat b')) 2)
+        by (apply (IH 0%nat b' w Hw); lia).
+      assert (Hpos : 0 <= g 0 b' w) by (apply g_nonneg; exact Hw).
+      destruct (Z.abs_spec (g 0 b' w - 2)) as [[? E] | [? E]]; rewrite E; lia.
+    + rewrite g_a0.
+      assert (Hrec : g a' 0 w <= Z.max (w - (Z.of_nat a' + 2 * Z.of_nat 0)) 2)
+        by (apply (IH a' 0%nat w Hw); lia).
+      assert (Hpos : 0 <= g a' 0 w) by (apply g_nonneg; exact Hw).
+      destruct (Z.abs_spec (g a' 0 w - 1)) as [[? E] | [? E]]; rewrite E; lia.
+    + rewrite g_ab.
+      assert (Hrec : g a' (S b') w
+                     <= Z.max (w - (Z.of_nat a' + 2 * Z.of_nat (S b'))) 2)
+        by (apply (IH a' (S b') w Hw); lia).
+      assert (Hpos : 0 <= g a' (S b') w) by (apply g_nonneg; exact Hw).
+      eapply Z.le_trans; [apply Z.le_min_l|].
+      destruct (Z.abs_spec (g a' (S b') w - 1)) as [[? E] | [? E]];
+        rewrite E; lia.
+Qed.
+
+(** * The long part carries the smaller terminal bonus *)
+
+Lemma existsb_longpart :
+  forall (f : comp -> bool),
+    (forall C, shortb C = true -> f C = false) ->
+    forall G, existsb f (longpart G) = existsb f G.
+Proof.
+  intros f Hf G; induction G as [|C G IH]; [reflexivity|].
+  destruct (shortb C) eqn:E.
+  - rewrite (longpart_short C G E); cbn [existsb].
+    rewrite (Hf C E), IH; reflexivity.
+  - rewrite (longpart_long C G E); cbn [existsb]; rewrite IH; reflexivity.
+Qed.
+
+Lemma cap_longpart : forall G, cap (longpart G) = cap G.
+Proof.
+  intros G; unfold cap.
+  rewrite (existsb_longpart longchain_b), (existsb_longpart is_3chain_b);
+    [reflexivity | | ].
+  - intros [k | k] H; [|reflexivity].
+    pose proof (shortb_chain k H) as Hb.
+    destruct k as [|[|[|k]]]; cbn; solve [reflexivity | lia].
+  - intros [k | k] H; [|reflexivity].
+    pose proof (shortb_chain k H) as Hb.
+    unfold longchain_b; apply Nat.leb_gt; lia.
+Qed.
+
+Lemma maxsh_longpart_le : forall G, maxsh (longpart G) <= maxsh G.
+Proof.
+  induction G as [|C G IH]; [cbn; lia|].
+  destruct (shortb C) eqn:E.
+  - rewrite (longpart_short C G E), maxsh_cons; lia.
+  - rewrite (longpart_long C G E), !maxsh_cons; lia.
+Qed.
+
+Lemma stb_longpart_le : forall G, stb (longpart G) <= stb G.
+Proof.
+  intros G; unfold stb; rewrite cap_longpart.
+  pose proof (maxsh_longpart_le G); lia.
+Qed.
+
+(** So the bonus the wellformed part is entitled to is one the whole position
+    can pay. *)
+Theorem tb_longpart_le_stb :
+  forall G, swf G -> longpart G <> [] -> tb (longpart G) <= stb G.
+Proof.
+  intros G Hw HNil.
+  rewrite <- (stb_eq_tb (longpart G) (longpart_wf G Hw) HNil).
+  apply stb_longpart_le.
+Qed.
+
+(** * The short chains hand over exactly their own boxes *)
+
+Lemma scbase_longpart :
+  forall G,
+    scbase G = scbase (longpart G) - (Z.of_nat (c1 G) + 2 * Z.of_nat (c2 G)).
+Proof.
+  induction G as [|C G IH]; [cbn; lia|].
+  rewrite c1_cons, c2_cons.
+  destruct (shortb C) eqn:E.
+  - rewrite (longpart_short C G E); cbn [scbase].
+    rewrite (sweight_short C E).
+    destruct (shortb_cases C E) as [H1 | H2].
+    + rewrite H1, (chain1b_chain2b C H1), (csize_chain1b C H1).
+      cbn [Nat.add]; rewrite Nat2Z.inj_succ; lia.
+    + assert (H1 : chain1b C = false).
+      { destruct (chain1b C) eqn:Ec; [|reflexivity].
+        rewrite (chain1b_chain2b C Ec) in H2; discriminate. }
+      rewrite H1, H2, (csize_chain2b C H2).
+      cbn [Nat.add]; rewrite Nat2Z.inj_succ; lia.
+  - rewrite (longpart_long C G E); cbn [scbase].
+    assert (H1 : chain1b C = false).
+    { destruct (chain1b C) eqn:Ec; [|reflexivity].
+      rewrite (chain1b_shortb C Ec) in E; discriminate. }
+    assert (H2 : chain2b C = false).
+    { destruct (chain2b C) eqn:Ec; [|reflexivity].
+      rewrite (chain2b_shortb C Ec) in E; discriminate. }
+    rewrite H1, H2; cbn [Nat.add]; lia.
+Qed.
+
+(** * The capped base is Berlekamp's on a wellformed position *)
+
+Lemma scbase_wf : forall G, wf G -> scbase G = cbase G.
+Proof.
+  induction G as [|C G IH]; intros Hw; [reflexivity|].
+  assert (HwC : wf_comp C) by (apply (wf_head C G); exact Hw).
+  cbn [scbase cbase]; rewrite (IH (wf_tail C G Hw)).
+  unfold sweight, weight; f_equal.
+  destruct C as [k | k].
+  - rewrite (shand_wf_chain k HwC); reflexivity.
+  - destruct HwC as [H4 _]; rewrite (shand_wf_loop k H4); reflexivity.
+Qed.
+
+(** * A controlled value of at most four caps the endgame at four *)
+
+Theorem svalue_le4_of_scval2_le4 :
+  forall G, swf G -> scval2 G <= 4 -> svalue G <= 4.
+Proof.
+  intros G Hw Hc.
+  rewrite (svalue_closed G Hw); unfold sv.
+  destruct (longpart G) as [|C L'] eqn:EL.
+  - (* nothing loony is left, so the fold starts from nothing *)
+    cbn [vlong].
+    pose proof (g_le_shift (c1 G) (c2 G) 0 ltac:(lia)) as Hb; lia.
+  - (* what is loony is wellformed, so its closed form is the value *)
+    assert (HwL : wf (C :: L')) by (rewrite <- EL; apply longpart_wf; exact Hw).
+    assert (HLnil : (C :: L') <> []) by discriminate.
+    assert (Hv : vlong (C :: L') = value (C :: L'))
+      by (cbn [vlong]; symmetry; apply value_complete; assumption).
+    assert (Hnn : 0 <= vlong (C :: L'))
+      by (rewrite Hv; apply value_nonneg; exact HwL).
+    assert (Hbnd : vlong (C :: L')
+                   <= 4 + (Z.of_nat (c1 G) + 2 * Z.of_nat (c2 G))).
+    { destruct (Z_le_gt_dec 2 (cval (C :: L'))) as [Hge2 | Hlt2].
+      - (* the long part is its own controlled value, and that is bounded *)
+        assert (Hcv : vlong (C :: L') = cval (C :: L'))
+          by (rewrite Hv; apply value_cval_ge2; assumption).
+        assert (Hsb : scbase (C :: L') = scbase G
+                      + (Z.of_nat (c1 G) + 2 * Z.of_nat (c2 G))).
+        { pose proof (scbase_longpart G) as H; rewrite EL in H; lia. }
+        assert (Htb : tb (C :: L') <= stb G).
+        { rewrite <- EL; apply tb_longpart_le_stb;
+            [exact Hw | rewrite EL; discriminate]. }
+        assert (Hcb : cval (C :: L') = scbase (C :: L') + tb (C :: L'))
+          by (unfold cval; rewrite (scbase_wf _ HwL); reflexivity).
+        unfold scval2 in Hc; lia.
+      - (* or it is below the threshold, where four is the ceiling *)
+        cbn [vlong]; pose proof (v41_le4 (C :: L') ltac:(lia)); lia. }
+    pose proof (g_le_shift (c1 G) (c2 G) (vlong (C :: L')) Hnn) as Hb; lia.
+Qed.
+
+(** Allcock's Theorem 1.4, on every position the board can present: an endgame
+    is worth more than four exactly when its controlled value is. *)
+Theorem svalue_gt4_iff :
+  forall G, swf G -> (4 < svalue G <-> 4 < scval2 G).
+Proof.
+  intros G Hw; split.
+  - intros H.
+    destruct (Z_le_gt_dec (scval2 G) 4) as [Hle | Hgt]; [|lia].
+    exfalso; pose proof (svalue_le4_of_scval2_le4 G Hw Hle); lia.
+  - intros H.
+    destruct (list_eq_dec comp_eq_dec G []) as [-> | HNil].
+    + unfold scval2, stb, maxsh, cap in H; cbn in H; lia.
+    + rewrite (svalue_scval2_ge2 G Hw HNil ltac:(lia)); exact H.
+Qed.
+
+(** So the controller's loop test reads off the capped controlled value, just
+    as Berlekamp's does off his. *)
+Corollary keep_control_loop_iff_short :
+  forall G, swf G -> (4 < svalue G <-> 4 < scval2 G).
+Proof. exact svalue_gt4_iff. Qed.
+
+(** * The fold, when a one-box chain is present *)
+
+(** With a one-box chain in hand the two-box chains are already two one-box
+    steps, so the whole fold collapses to [h1] and the closed form is read off
+    a single index. *)
+Theorem sv_collapse_one :
+  forall G,
+    swf G -> (1 <= c1 G)%nat ->
+    sv G = h1 (Z.of_nat (c1 G) + 2 * Z.of_nat (c2 G)) (vlong (longpart G)).
+Proof.
+  intros G Hw Ha; unfold sv.
+  assert (Hnn : 0 <= vlong (longpart G)).
+  { destruct (longpart G) as [|C L'] eqn:EL; [cbn; lia|].
+    assert (HwL : wf (C :: L')) by (rewrite <- EL; apply longpart_wf; exact Hw).
+    cbn [vlong]; rewrite <- (value_complete (C :: L') HwL ltac:(discriminate)).
+    apply value_nonneg; exact HwL. }
+  apply g_collapse; [exact Ha | exact Hnn].
+Qed.
