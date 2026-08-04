@@ -20,6 +20,7 @@
 From Stdlib Require Import List.
 From Stdlib Require Import PeanoNat.
 From Stdlib Require Import Bool.
+From Stdlib Require Import ZArith.
 From Stdlib Require Import Lia.
 
 Import ListNotations.
@@ -631,3 +632,472 @@ Proof.
 Qed.
 
 End Board.
+
+(** ****************************************************************** *)
+(** Forcing a score margin on the Dots and Boxes board.
+
+    [DotsAndBoxesBoard.db_outc] reports only who won, so the forcing
+    predicates it feeds can say that a player wins but not by how much. A
+    scoring game has a margin, and the natural question is which margins a
+    player can force.
+
+    [db_outc_ge k] is the outcome map that calls a finished game a win for
+    the first player exactly when the margin reaches [k]. Reading
+    [GameTrees.Determinacy] against it gives [forces_margin], and the
+    Zermelo theorem then says every margin is decided: either the first
+    player forces it or the second player forces that it is missed.
+    [forces_margin_mono] is monotone in [k], [forces_margin_win] identifies
+    margin one with winning, and [margin_best] extracts the largest margin
+    the first player can force on a board of known size. *)
+
+Import ListNotations.
+
+Local Open Scope Z_scope.
+
+Section Margin.
+
+Variables m n : nat.
+
+(** * The margin *)
+
+(** The first player's lead. *)
+Definition margin (s : st) : Z := Z.of_nat (s1 s) - Z.of_nat (s2 s).
+
+Lemma margin_init : margin init = 0.
+Proof. reflexivity. Qed.
+
+(** * Outcomes indexed by a target margin *)
+
+(** A finished game is a win for the first player exactly when the margin
+    reaches [k]. Unfinished games are undecided, exactly as for [db_outc]. *)
+Definition db_outc_ge (k : Z) (s : st) : option outcome :=
+  match db_moves m n s with
+  | [] => Some (if k <=? margin s then win true else win false)
+  | _ :: _ => None
+  end.
+
+Lemma db_outc_ge_none_iff :
+  forall k s, db_outc_ge k s = None <-> db_moves m n s <> [].
+Proof.
+  intros k s; unfold db_outc_ge; destruct (db_moves m n s); split;
+    try discriminate; try reflexivity.
+  intros H; contradiction.
+Qed.
+
+Lemma db_outc_ge_not_drawn : forall k s, db_outc_ge k s <> Some drawn.
+Proof.
+  intros k s H; unfold db_outc_ge in H.
+  destruct (db_moves m n s); [|discriminate].
+  destruct (k <=? margin s); discriminate.
+Qed.
+
+Lemma db_outc_ge_none_moves :
+  forall k s, db_outc_ge k s = None -> exists e, In e (db_moves m n s).
+Proof.
+  intros k s H; apply db_outc_ge_none_iff in H.
+  destruct (db_moves m n s) as [|e r] eqn:E; [contradiction|].
+  exists e; left; reflexivity.
+Qed.
+
+(** * Forcing a margin *)
+
+(** [forces_margin k fuel s]: the first player drives the finished margin to
+    [k] or better within [fuel] plies. *)
+Definition forces_margin (k : Z) (fuel : nat) (s : st) : Prop :=
+  forces (db_moves m n) (db_play m n) db_amove (db_outc_ge k) true fuel s.
+
+(** [denies_margin k fuel s]: the second player keeps the margin below [k]. *)
+Definition denies_margin (k : Z) (fuel : nat) (s : st) : Prop :=
+  forces (db_moves m n) (db_play m n) db_amove (db_outc_ge k) false fuel s.
+
+(** * Transfer between outcome maps *)
+
+(** Two outcome maps that agree on which states are finished, and whose
+    verdicts a player reads the same way, force the same things. Both the
+    monotonicity in [k] and the identification of margin one with winning are
+    instances. *)
+Lemma forces_in_transfer :
+  forall (o1 o2 : st -> option outcome) (g1 g2 : outcome -> bool) who fuel s,
+    (forall t, o1 t = None <-> o2 t = None) ->
+    (forall t x y, o1 t = Some x -> o2 t = Some y -> g1 x = true -> g2 y = true) ->
+    forces_in (db_moves m n) (db_play m n) db_amove o1 g1 who fuel s ->
+    forces_in (db_moves m n) (db_play m n) db_amove o2 g2 who fuel s.
+Proof.
+  intros o1 o2 g1 g2 who fuel; induction fuel as [|f IH]; intros s Hnone Hval H.
+  - apply (proj1 (forces_in_0_iff _ _ _ o1 g1 who s)) in H.
+    apply (proj2 (forces_in_0_iff _ _ _ o2 g2 who s)).
+    destruct (o1 s) as [x|] eqn:E1; [|destruct H].
+    destruct (o2 s) as [y|] eqn:E2.
+    + exact (Hval s x y E1 E2 H).
+    + exfalso.
+      assert (Hc : o1 s = None) by (apply Hnone; exact E2).
+      rewrite E1 in Hc; discriminate.
+  - apply (proj1 (forces_in_S_iff _ _ _ o1 g1 who f s)) in H.
+    apply (proj2 (forces_in_S_iff _ _ _ o2 g2 who f s)).
+    destruct (o1 s) as [x|] eqn:E1.
+    + destruct (o2 s) as [y|] eqn:E2.
+      * exact (Hval s x y E1 E2 H).
+      * exfalso.
+        assert (Hc : o1 s = None) by (apply Hnone; exact E2).
+        rewrite E1 in Hc; discriminate.
+    + assert (E2 : o2 s = None) by (apply Hnone; exact E1).
+      rewrite E2.
+      destruct (Bool.eqb (db_amove s) who).
+      * destruct H as [e [He Hw]]; exists e; split; [exact He|].
+        apply IH; assumption.
+      * intros e He; apply IH; auto.
+Qed.
+
+(** A smaller target is easier to force. *)
+Theorem forces_margin_mono :
+  forall k k' fuel s,
+    k' <= k -> forces_margin k fuel s -> forces_margin k' fuel s.
+Proof.
+  intros k k' fuel s Hle H; unfold forces_margin in *.
+  apply (forces_in_transfer (db_outc_ge k) (db_outc_ge k')
+           (goal_win true) (goal_win true) true fuel s).
+  - intros t; rewrite !db_outc_ge_none_iff; reflexivity.
+  - intros t x y Hx Hy Hg.
+    unfold db_outc_ge in Hx, Hy.
+    destruct (db_moves m n t); [|discriminate].
+    destruct (k <=? margin t) eqn:Ek; injection Hx as <-;
+      destruct (k' <=? margin t) eqn:Ek'; injection Hy as <-;
+      try reflexivity; try discriminate.
+    exfalso; apply Z.leb_le in Ek; apply Z.leb_gt in Ek'; lia.
+  - exact H.
+Qed.
+
+(** Symmetrically, a larger target is easier to deny. *)
+Theorem denies_margin_mono :
+  forall k k' fuel s,
+    k <= k' -> denies_margin k fuel s -> denies_margin k' fuel s.
+Proof.
+  intros k k' fuel s Hle H; unfold denies_margin in *.
+  apply (forces_in_transfer (db_outc_ge k) (db_outc_ge k')
+           (goal_win false) (goal_win false) false fuel s).
+  - intros t; rewrite !db_outc_ge_none_iff; reflexivity.
+  - intros t x y Hx Hy Hg.
+    unfold db_outc_ge in Hx, Hy.
+    destruct (db_moves m n t); [|discriminate].
+    destruct (k <=? margin t) eqn:Ek; injection Hx as <-;
+      destruct (k' <=? margin t) eqn:Ek'; injection Hy as <-;
+      try reflexivity; try discriminate.
+    exfalso; apply Z.leb_gt in Ek; apply Z.leb_le in Ek'; lia.
+  - exact H.
+Qed.
+
+(** * Every margin is decided *)
+
+Theorem margin_determined :
+  forall k fuel s,
+    wf_st m n s -> (db_measure m n s <= fuel)%nat ->
+    forces_margin k fuel s \/ denies_margin k fuel s.
+Proof.
+  intros k fuel s Hw Hf.
+  apply (zermelo (db_moves m n) (db_play m n) db_amove (db_outc_ge k)
+           (wf_st m n) (db_measure m n)).
+  - intros t e Hi _ He; apply wf_play; assumption.
+  - intros t e _ _ He; apply db_measure_play; exact He.
+  - intros t _ Ho; apply (db_outc_ge_none_moves k); exact Ho.
+  - apply db_outc_ge_not_drawn.
+  - exact Hw.
+  - exact Hf.
+Qed.
+
+Theorem margin_not_both :
+  forall k fuel s, forces_margin k fuel s -> denies_margin k fuel s -> False.
+Proof.
+  intros k fuel s H1 H2.
+  exact (forces_not_both (db_moves m n) (db_play m n) db_amove
+           (db_outc_ge k) fuel s H1 H2).
+Qed.
+
+(** * Margin one is winning *)
+
+(** [db_outc] and [db_outc_ge 1] disagree on how they name a draw, but the
+    first player reads both the same way, so forcing a margin of one is
+    exactly forcing a win. *)
+Theorem forces_margin_win :
+  forall fuel s,
+    forces_margin 1 fuel s <->
+    forces (db_moves m n) (db_play m n) db_amove (db_outc m n) true fuel s.
+Proof.
+  intros fuel s; unfold forces_margin; split; intros H.
+  - apply (forces_in_transfer (db_outc_ge 1) (db_outc m n)
+             (goal_win true) (goal_win true) true fuel s);
+      [| | exact H].
+    + intros t; rewrite db_outc_ge_none_iff, db_outc_none_iff; reflexivity.
+    + intros t x y Hx Hy Hg.
+      unfold db_outc_ge in Hx; unfold db_outc in Hy.
+      destruct (db_moves m n t); [|discriminate].
+      unfold margin in Hx.
+      destruct (1 <=? Z.of_nat (s1 t) - Z.of_nat (s2 t)) eqn:Ek;
+        injection Hx as <-; [|discriminate].
+      apply Z.leb_le in Ek.
+      assert (Hlt : (s2 t <? s1 t)%nat = true) by (apply Nat.ltb_lt; lia).
+      rewrite Hlt in Hy; injection Hy as <-; reflexivity.
+  - apply (forces_in_transfer (db_outc m n) (db_outc_ge 1)
+             (goal_win true) (goal_win true) true fuel s);
+      [| | exact H].
+    + intros t; rewrite db_outc_none_iff, db_outc_ge_none_iff; reflexivity.
+    + intros t x y Hx Hy Hg.
+      unfold db_outc in Hx; unfold db_outc_ge in Hy.
+      destruct (db_moves m n t); [|discriminate].
+      destruct (s2 t <? s1 t)%nat eqn:E1; injection Hx as <-.
+      * apply Nat.ltb_lt in E1.
+        assert (Hk : 1 <=? margin t = true)
+          by (apply Z.leb_le; unfold margin; lia).
+        rewrite Hk in Hy; injection Hy as <-; reflexivity.
+      * destruct (s1 t <? s2 t)%nat; discriminate.
+Qed.
+
+(** * The best margin on a finite board *)
+
+(** No margin above the number of boxes is ever attained, so the forced
+    margins are bounded and the search below is finite. *)
+Lemma margin_le_boxes :
+  forall s, wf_st m n s -> margin s <= Z.of_nat (length (boxes m n)).
+Proof.
+  intros s [_ [_ Hsc]].
+  unfold margin, scored in *.
+  assert (Hle : (ndone m n (laid s) <= length (boxes m n))%nat).
+  { unfold ndone; apply length_filter_le. }
+  lia.
+Qed.
+
+(** The first player cannot force more than the board holds: forcing drives
+    play to a finished position, and there the margin is at most the number
+    of boxes. *)
+Theorem forces_margin_bounded :
+  forall fuel k s,
+    wf_st m n s -> forces_margin k fuel s ->
+    k <= Z.of_nat (length (boxes m n)).
+Proof.
+  induction fuel as [|f IH]; intros k s Hw H; unfold forces_margin, forces in H.
+  - apply (proj1 (forces_in_0_iff _ _ _ _ _ _ s)) in H.
+    unfold db_outc_ge in H.
+    destruct (db_moves m n s) as [|e r]; [|destruct H].
+    destruct (k <=? margin s) eqn:Ek; simpl in H; [|discriminate].
+    apply Z.leb_le in Ek.
+    pose proof (margin_le_boxes s Hw); lia.
+  - apply (proj1 (forces_in_S_iff _ _ _ _ _ _ f s)) in H.
+    destruct (db_outc_ge k s) as [o|] eqn:E.
+    + unfold db_outc_ge in E.
+      destruct (db_moves m n s) as [|e r]; [|discriminate].
+      destruct (k <=? margin s) eqn:Ek.
+      * injection E as <-.
+        apply Z.leb_le in Ek.
+        pose proof (margin_le_boxes s Hw); lia.
+      * injection E as <-; simpl in H; discriminate.
+    + destruct (db_outc_ge_none_moves k s E) as [e He].
+      destruct (Bool.eqb (db_amove s) true).
+      * destruct H as [x [Hx Hplay]].
+        apply (IH k (db_play m n s x));
+          [apply wf_play; assumption | exact Hplay].
+      * apply (IH k (db_play m n s e));
+          [apply wf_play; assumption | apply H; exact He].
+Qed.
+
+End Margin.
+
+(** ****************************************************************** *)
+(** The largest margin the first player can force.
+
+    [GameTrees.DotsAndBoxesBoard] decides every target margin separately and bounds the
+    forcible ones above by the number of boxes, but never assembles those into
+    a single best margin. This file does.
+
+    The forcible targets are downward closed by [forces_margin_mono], bounded
+    above by [forces_margin_bounded], and nonempty because a target below every
+    attainable margin asks nothing of the play. A set of integers with those
+    three properties has a greatest element, and [margin_best_exists] extracts
+    it. No search over play is involved: the induction runs over the target,
+    whose range the board already bounds. *)
+
+Local Open Scope Z_scope.
+
+Section MarginBest.
+
+Variables m n : nat.
+
+Notation B := (Z.of_nat (length (boxes m n))).
+
+(** * A target nothing can miss *)
+
+(** Neither score exceeds the number of boxes, so the margin lies in a band
+    the board fixes. *)
+Lemma margin_ge_neg_boxes :
+  forall s, wf_st m n s -> - B <= margin s.
+Proof.
+  intros s [_ [_ Hsc]].
+  unfold margin, scored in *.
+  assert (Hle : (ndone m n (laid s) <= length (boxes m n))%nat)
+    by (unfold ndone; apply length_filter_le).
+  lia.
+Qed.
+
+(** With a target that low every finished position counts as a win for the
+    first player. *)
+Lemma db_outc_ge_low_goal :
+  forall k s o,
+    wf_st m n s -> k <= - B ->
+    db_outc_ge m n k s = Some o -> goal_win true o = true.
+Proof.
+  intros k s o Hw Hk Ho; unfold db_outc_ge in Ho.
+  destruct (db_moves m n s) as [|e r]; [|discriminate].
+  pose proof (margin_ge_neg_boxes s Hw) as Hm.
+  assert (Hle : k <=? margin s = true) by (apply Z.leb_le; lia).
+  rewrite Hle in Ho; injection Ho as <-; reflexivity.
+Qed.
+
+(** * Forcing a goal every wellformed finished position satisfies *)
+
+(** Play runs the measure down and must stop; wherever it stops the goal
+    holds, so it is forced whichever side is asked to force it. The
+    wellformedness travels with the state, which is what lets the goal
+    condition mention it. *)
+Lemma forces_in_of_goal_always :
+  forall (o : st -> option outcome) (g : outcome -> bool) who fuel s,
+    wf_st m n s -> (db_measure m n s <= fuel)%nat ->
+    (forall t, o t = None <-> db_moves m n t <> []) ->
+    (forall t x, wf_st m n t -> o t = Some x -> g x = true) ->
+    forces_in (db_moves m n) (db_play m n) db_amove o g who fuel s.
+Proof.
+  intros o g who fuel; induction fuel as [|f IH];
+    intros s Hw Hf Hnone Hgoal.
+  - apply (proj2 (forces_in_0_iff _ _ _ _ _ _ s)).
+    destruct (o s) as [x|] eqn:E; [exact (Hgoal s x Hw E)|].
+    exfalso.
+    apply Hnone in E.
+    assert (Hex : exists e, In e (db_moves m n s)).
+    { destruct (db_moves m n s) as [|e r] eqn:Em;
+        [contradiction | exists e; left; reflexivity]. }
+    destruct Hex as [e He].
+    pose proof (db_measure_play m n s e He); lia.
+  - apply (proj2 (forces_in_S_iff _ _ _ _ _ _ f s)).
+    destruct (o s) as [x|] eqn:E; [exact (Hgoal s x Hw E)|].
+    assert (Hne : db_moves m n s <> []) by (apply Hnone; exact E).
+    assert (Hex : exists e, In e (db_moves m n s)).
+    { destruct (db_moves m n s) as [|e r] eqn:Em;
+        [contradiction | exists e; left; reflexivity]. }
+    destruct Hex as [e He].
+    destruct (Bool.eqb (db_amove s) who).
+    + exists e; split; [exact He|].
+      apply IH; [apply wf_play; assumption
+                | pose proof (db_measure_play m n s e He); lia
+                | exact Hnone | exact Hgoal].
+    + intros x' Hx'.
+      apply IH; [apply wf_play; assumption
+                | pose proof (db_measure_play m n s x' Hx'); lia
+                | exact Hnone | exact Hgoal].
+Qed.
+
+(** So a low enough target is always forcible. *)
+Theorem forces_margin_low :
+  forall k fuel s,
+    wf_st m n s -> (db_measure m n s <= fuel)%nat -> k <= - B ->
+    forces_margin m n k fuel s.
+Proof.
+  intros k fuel s Hw Hf Hk; unfold forces_margin, forces.
+  apply forces_in_of_goal_always; [exact Hw | exact Hf | |].
+  - intros t; apply db_outc_ge_none_iff.
+  - intros t x Hwt Ht; exact (db_outc_ge_low_goal k t x Hwt Hk Ht).
+Qed.
+
+(** * The greatest forcible target *)
+
+(** Searching down from a bound: if the target [b] is out of reach, the best
+    lies below it. The recursion is on the gap between the bound and the floor,
+    not on the game. *)
+Lemma margin_best_from :
+  forall fuel s,
+    wf_st m n s -> (db_measure m n s <= fuel)%nat ->
+    forall d b,
+      (Z.to_nat (b - (- B)) <= d)%nat ->
+      - B <= b ->
+      exists k,
+        forces_margin m n k fuel s /\
+        (forall k', forces_margin m n k' fuel s -> k' <= b -> k' <= k).
+Proof.
+  intros fuel s Hw Hf.
+  induction d as [|d IH]; intros b Hd Hb.
+  - (* the bound has descended to the floor, which is always forcible *)
+    assert (Hbz : b = - B) by lia.
+    exists b; split.
+    + apply forces_margin_low; [exact Hw | exact Hf | lia].
+    + intros k' _ Hk'; exact Hk'.
+  - destruct (Z_le_gt_dec b (- B)) as [Hlow | Hhigh].
+    + assert (Hbz : b = - B) by lia.
+      exists b; split.
+      * apply forces_margin_low; [exact Hw | exact Hf | lia].
+      * intros k' _ Hk'; exact Hk'.
+    + destruct (forces_b (db_moves m n) (db_play m n) db_amove
+                  (db_outc_ge m n b) true fuel s) eqn:Eb.
+      * (* the bound itself is forcible, so it is the best below it *)
+        exists b; split.
+        -- unfold forces_margin; apply (forces_b_correct _ _ _ _ true fuel s);
+             exact Eb.
+        -- intros k' _ Hk'; exact Hk'.
+      * (* it is not, so nothing above [b - 1] is either *)
+        destruct (IH (b - 1) ltac:(lia) ltac:(lia)) as [k [Hk Hmax]].
+        exists k; split; [exact Hk|].
+        intros k' Hk' Hle.
+        destruct (Z.eq_dec k' b) as [-> | Hne].
+        -- exfalso.
+           assert (Hbb : forces_b (db_moves m n) (db_play m n) db_amove
+                           (db_outc_ge m n b) true fuel s = true)
+             by (apply (forces_b_correct _ _ _ _ true fuel s); exact Hk').
+           congruence.
+        -- apply Hmax; [exact Hk' | lia].
+Qed.
+
+(** The first player has a best forcible margin: one she can force, and above
+    which she can force nothing. *)
+Theorem margin_best_exists :
+  forall fuel s,
+    wf_st m n s -> (db_measure m n s <= fuel)%nat ->
+    exists k,
+      forces_margin m n k fuel s /\
+      (forall k', forces_margin m n k' fuel s -> k' <= k).
+Proof.
+  intros fuel s Hw Hf.
+  destruct (margin_best_from fuel s Hw Hf
+              (Z.to_nat (B - (- B))) B ltac:(lia) ltac:(lia))
+    as [k [Hk Hmax]].
+  exists k; split; [exact Hk|].
+  intros k' Hk'.
+  apply Hmax; [exact Hk'|].
+  exact (forces_margin_bounded m n fuel k' s Hw Hk').
+Qed.
+
+(** It is unique, so "the" best margin is well defined. *)
+Theorem margin_best_unique :
+  forall fuel s k1 k2,
+    forces_margin m n k1 fuel s ->
+    (forall k', forces_margin m n k' fuel s -> k' <= k1) ->
+    forces_margin m n k2 fuel s ->
+    (forall k', forces_margin m n k' fuel s -> k' <= k2) ->
+    k1 = k2.
+Proof.
+  intros fuel s k1 k2 H1 M1 H2 M2.
+  pose proof (M1 k2 H2); pose proof (M2 k1 H1); lia.
+Qed.
+
+(** And it decides the game: the first player wins exactly when her best
+    margin reaches one. *)
+Theorem margin_best_wins :
+  forall fuel s k,
+    forces_margin m n k fuel s ->
+    (forall k', forces_margin m n k' fuel s -> k' <= k) ->
+    (forces (db_moves m n) (db_play m n) db_amove (db_outc m n) true fuel s
+     <-> 1 <= k).
+Proof.
+  intros fuel s k Hk Hmax; split.
+  - intros Hwin.
+    apply Hmax, (forces_margin_win m n fuel s); exact Hwin.
+  - intros H1.
+    apply (forces_margin_win m n fuel s).
+    apply (forces_margin_mono m n k 1 fuel s); [exact H1 | exact Hk].
+Qed.
+
+End MarginBest.

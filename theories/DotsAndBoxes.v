@@ -21,10 +21,15 @@ From Stdlib Require Import Bool.
 From Stdlib Require Import ZArith.
 From Stdlib Require Import Lia.
 From Stdlib Require Import Sorting.Permutation.
+Require Import GameTrees.Helpers.
+Require Import GameTrees.Relations.
+Require Import GameTrees.Trees.
+Require Import Corelib.Program.Basics.
+From Stdlib Require Import Relations.Relation_Operators.
+From Stdlib Require Import Relations.Operators_Properties.
+Require Import GameTrees.DotsAndBoxesBoard.
 
 Import ListNotations.
-
-Require Import GameTrees.Helpers.
 
 (** * Components and positions *)
 
@@ -4710,3 +4715,1994 @@ Proof.
   - exfalso; apply HNil, selections_nil_iff; exact E.
   - eexists; reflexivity.
 Qed.
+
+(** ****************************************************************** *)
+(** Short chains.
+
+    [GameTrees.DotsAndBoxes] asks every chain to have at least three boxes,
+    and the handout of two is then always available. A chain of one box has no
+    such handout, and there [vopen] is simply wrong: with one box and a
+    remainder worth three it reports zero, when the controller can only take
+    the box and open, for minus two.
+
+    [shand] caps the handout at the component itself and [svopen] is the
+    recursion built on it. [svopen_wf] proves the two agree wherever the
+    existing theory applies, so this is a conservative extension, and
+    [svopen_chain1] and [svopen_chain2] give the short cases the earlier
+    development cannot state. *)
+
+Import ListNotations.
+
+Open Scope Z_scope.
+
+(** * The capped handout *)
+
+(** The controller cannot leave more than the component holds. *)
+Definition shand (C : comp) : nat := Nat.min (hand C) (csize C).
+
+Definition svopen (C : comp) (w : Z) : Z :=
+  Z.max (Z.of_nat (csize C) - w)
+        (Z.of_nat (csize C) - 2 * Z.of_nat (shand C) + w).
+
+Lemma shand_le_csize : forall C, (shand C <= csize C)%nat.
+Proof. intros C; unfold shand; lia. Qed.
+
+(** * Conservativity *)
+
+Lemma shand_wf : forall C, wf_comp C -> shand C = hand C.
+Proof.
+  intros C H; unfold shand.
+  pose proof (hand_le_csize C H); lia.
+Qed.
+
+(** Wherever the earlier development applies, the capped recursion is the
+    same recursion. *)
+Theorem svopen_wf :
+  forall C w, wf_comp C -> svopen C w = vopen C w.
+Proof.
+  intros C w H; unfold svopen; rewrite (shand_wf C H), <- vopen_max; reflexivity.
+Qed.
+
+(** * The capped recursion is still sound *)
+
+(** The opener never profits at a single component, however short. *)
+Theorem svopen_nonneg : forall C w, 0 <= svopen C w.
+Proof.
+  intros C w; unfold svopen.
+  pose proof (shand_le_csize C) as Hs.
+  assert (Hz : (Z.of_nat (shand C) <= Z.of_nat (csize C)))
+    by (apply Nat2Z.inj_le; exact Hs).
+  destruct (Z.le_gt_cases w (Z.of_nat (csize C))) as [Hle | Hgt].
+  - eapply Z.le_trans; [| apply Z.le_max_l]; lia.
+  - eapply Z.le_trans; [| apply Z.le_max_r]; lia.
+Qed.
+
+(** The capped handout still shares the parity of the component and the
+    remainder, so the counting arguments carry over. *)
+Theorem svopen_parity :
+  forall C w, Z.even (svopen C w) = Z.even (Z.of_nat (csize C) + w).
+Proof.
+  intros C w; unfold svopen.
+  destruct (Z.le_gt_cases (Z.of_nat (csize C) - w)
+                          (Z.of_nat (csize C) - 2 * Z.of_nat (shand C) + w))
+    as [Hle | Hgt].
+  - rewrite Z.max_r by lia.
+    replace (Z.of_nat (csize C) - 2 * Z.of_nat (shand C) + w)
+      with ((Z.of_nat (csize C) + w) - 2 * Z.of_nat (shand C)) by lia.
+    rewrite Z.even_sub, (Z.even_mul 2 (Z.of_nat (shand C))); simpl Z.even at 2.
+    destruct (Z.even (Z.of_nat (csize C) + w)); reflexivity.
+  - rewrite Z.max_l by lia.
+    rewrite Z.even_sub, Z.even_add.
+    destruct (Z.even (Z.of_nat (csize C))), (Z.even w); reflexivity.
+Qed.
+
+(** * The short cases *)
+
+(** A single box: take it and open, or leave it and keep control. *)
+Theorem svopen_chain1 : forall w, svopen (Chain 1) w = Z.abs (w - 1).
+Proof.
+  intros w; unfold svopen, shand; simpl csize; simpl hand; simpl Nat.min.
+  destruct (Z.le_gt_cases w 1) as [Hle | Hgt].
+  - rewrite Z.abs_neq by lia; lia.
+  - rewrite Z.abs_eq by lia; lia.
+Qed.
+
+(** Two boxes: the handout is the whole chain, so declining takes nothing. *)
+Theorem svopen_chain2 : forall w, svopen (Chain 2) w = Z.abs (w - 2).
+Proof.
+  intros w; unfold svopen, shand; simpl csize; simpl hand; simpl Nat.min.
+  destruct (Z.le_gt_cases w 2) as [Hle | Hgt].
+  - rewrite Z.abs_neq by lia; lia.
+  - rewrite Z.abs_eq by lia; lia.
+Qed.
+
+(** The uncapped recursion really does go wrong on a one-box chain: it
+    reports zero where the controller can only lose two. *)
+Example vopen_chain1_wrong : vopen (Chain 1) 3 = 0 /\ svopen (Chain 1) 3 = 2.
+Proof. split; reflexivity. Qed.
+
+(** * Positions with short chains *)
+
+(** Chains of one or two boxes, and the loops the board can produce. *)
+Definition swf_comp (C : comp) : Prop :=
+  match C with
+  | Chain n => (1 <= n)%nat
+  | Loop n => (4 <= n)%nat /\ Nat.even n = true
+  end.
+
+Definition swf (G : position) : Prop := Forall swf_comp G.
+
+Lemma wf_swf : forall G, wf G -> swf G.
+Proof.
+  intros G H; unfold swf; rewrite Forall_forall.
+  unfold wf in H; rewrite Forall_forall in H.
+  intros C HC; specialize (H C HC).
+  destruct C as [k | k]; simpl in *; [lia | exact H].
+Qed.
+
+(** So every wellformed loony position is one the capped theory covers, and
+    on those the two recursions agree component by component. *)
+Theorem svopen_agrees_on_wf :
+  forall G, wf G -> Forall (fun C => forall w, svopen C w = vopen C w) G.
+Proof.
+  intros G H; unfold wf in H; rewrite Forall_forall in H.
+  rewrite Forall_forall; intros C HC w.
+  apply svopen_wf, H, HC.
+Qed.
+
+(** * The value with short chains allowed *)
+
+Fixpoint svf (fuel : nat) (G : position) : Z :=
+  match fuel with
+  | O => 0
+  | S f =>
+      match selections G with
+      | [] => 0
+      | p :: more =>
+          minl (svopen (fst p) (svf f (snd p)))
+               (map (fun q => svopen (fst q) (svf f (snd q))) more)
+      end
+  end.
+
+Definition svalue (G : position) : Z := svf (length G) G.
+
+Lemma svf_vf : forall fuel G, wf G -> svf fuel G = vf fuel G.
+Proof.
+  induction fuel as [|f IH]; intros G HG; [reflexivity|].
+  simpl svf; simpl vf.
+  destruct (selections G) as [|p more] eqn:E; [reflexivity|].
+  assert (Hp : In p (selections G)) by (rewrite E; left; reflexivity).
+  destruct (selections_wf G p HG Hp) as [Hcp Hrp].
+  rewrite (IH (snd p) Hrp), (svopen_wf (fst p) (vf f (snd p)) Hcp).
+  f_equal.
+  apply map_ext_in; intros q Hq.
+  assert (Hq' : In q (selections G)) by (rewrite E; right; exact Hq).
+  destruct (selections_wf G q HG Hq') as [Hcq Hrq].
+  rewrite (IH (snd q) Hrq), (svopen_wf (fst q) (vf f (snd q)) Hcq); reflexivity.
+Qed.
+
+(** The capped value is the value, wherever the value is defined. Every
+    closed form of [GameTrees.DotsAndBoxes] therefore transfers, and what is
+    new is only the positions the earlier theory had to exclude. *)
+Theorem svalue_wf : forall G, wf G -> svalue G = value G.
+Proof. intros G H; unfold svalue, value; apply svf_vf; exact H. Qed.
+
+(** The opener never profits, short chains or not. *)
+Theorem svalue_nonneg : forall G, 0 <= svalue G.
+Proof.
+  assert (Haux : forall n G, (length G <= n)%nat -> 0 <= svf n G).
+  { induction n as [|n IH]; intros G Hn; [apply Z.le_refl|].
+    simpl svf; destruct (selections G) as [|p more] eqn:E;
+      [apply Z.le_refl|].
+    apply minl_lower_bound; [apply svopen_nonneg|].
+    intros y Hy; apply in_map_iff in Hy; destruct Hy as [q [<- _]].
+    apply svopen_nonneg. }
+  intros G; unfold svalue; apply Haux; lia.
+Qed.
+
+(** A lone short chain is taken whole. *)
+Example svalue_chain1 : svalue [Chain 1] = 1.
+Proof. reflexivity. Qed.
+
+Example svalue_two_chain1 : svalue [Chain 1; Chain 1] = 0.
+Proof. reflexivity. Qed.
+
+(** ****************************************************************** *)
+(** Values of positions holding short chains.
+
+    [GameTrees.DotsAndBoxes] caps the handout at the component and proves the
+    capped recursion conservative, but proves nothing about the positions the
+    cap was introduced for. The recursion [svf] had no unfolding lemmas at
+    all, so nothing could be said about [svalue] beyond its agreement with
+    [value] on wellformed positions.
+
+    This file supplies that machinery, mirroring the development of
+    [GameTrees.DotsAndBoxes] for the capped recursion, and settles what it
+    reaches: [svalue_parity], the upper bound [svalue_le_size], and closed
+    forms for the uniform families of one- and two-box chains, which the
+    earlier theory could not state.
+
+    The full analogue of [DotsAndBoxes.value_complete] is not proved. The
+    closed form there is a case analysis on the terminal bonus and the counts
+    of three-chains and four-loops, and admitting short chains changes every
+    one of those cases, since a chain of one or two has no handout to leave
+    and so cannot keep control. *)
+
+Open Scope Z_scope.
+
+(** * Unfolding the capped recursion *)
+
+Lemma svf_cons :
+  forall f C G,
+    svf (S f) (C :: G) =
+    minl (svopen C (svf f G))
+         (map (fun q => svopen (fst q) (svf f (snd q)))
+              (map (fun p => (fst p, C :: snd p)) (selections G))).
+Proof. reflexivity. Qed.
+
+Lemma svf_stable :
+  forall k G f1 f2,
+    (length G <= k)%nat -> (length G <= f1)%nat -> (length G <= f2)%nat ->
+    svf f1 G = svf f2 G.
+Proof.
+  induction k as [|k IH]; intros G f1 f2 Hk H1 H2.
+  - assert (HG : G = []) by (destruct G; simpl in Hk; [reflexivity | lia]).
+    subst G; destruct f1, f2; reflexivity.
+  - destruct G as [|C G]; [destruct f1, f2; reflexivity|].
+    destruct f1 as [|f1]; [simpl in H1; lia|].
+    destruct f2 as [|f2]; [simpl in H2; lia|].
+    simpl length in Hk, H1, H2.
+    rewrite !svf_cons, (IH G f1 f2) by lia.
+    f_equal.
+    apply map_ext_in; intros q Hq.
+    apply in_map_iff in Hq; destruct Hq as [[Cp restp] [Heq Hp]].
+    simpl in Heq; subst q; simpl.
+    pose proof (selections_length G (Cp, restp) Hp) as Hl; simpl in Hl.
+    f_equal; apply (IH (C :: restp)); simpl length; lia.
+Qed.
+
+Lemma svf_svalue :
+  forall f G, (length G <= f)%nat -> svf f G = svalue G.
+Proof.
+  intros f G Hf; unfold svalue; apply (svf_stable (length G)); lia.
+Qed.
+
+Lemma svalue_nil : svalue [] = 0.
+Proof. reflexivity. Qed.
+
+(** The worth of a position once a component has been opened. *)
+Definition svalue_open (p : comp * position) : Z :=
+  svopen (fst p) (svalue (snd p)).
+
+Lemma svalue_cons :
+  forall C G,
+    svalue (C :: G) =
+    minl (svalue_open (C, G))
+         (map svalue_open (map (fun p => (fst p, C :: snd p)) (selections G))).
+Proof.
+  intros C G.
+  unfold svalue at 1; simpl length; rewrite svf_cons.
+  unfold svalue_open; simpl fst; simpl snd.
+  rewrite (svf_svalue (length G) G) by lia.
+  f_equal.
+  apply map_ext_in; intros q Hq.
+  apply in_map_iff in Hq; destruct Hq as [[Cp restp] [Heq Hp]].
+  simpl in Heq; subst q; simpl.
+  pose proof (selections_length G (Cp, restp) Hp) as Hl; simpl in Hl.
+  f_equal; apply svf_svalue; simpl length; lia.
+Qed.
+
+(** The fixpoint equation: the opener minimises over components. *)
+Lemma svalue_unfold :
+  forall G,
+    svalue G =
+    match selections G with
+    | [] => 0
+    | p :: more => minl (svalue_open p) (map svalue_open more)
+    end.
+Proof.
+  intros [|C G]; [reflexivity | apply svalue_cons].
+Qed.
+
+Lemma svalue_le_open :
+  forall G p, In p (selections G) -> svalue G <= svalue_open p.
+Proof.
+  intros G p Hp; rewrite svalue_unfold.
+  destruct (selections G) as [|q more]; [destruct Hp|].
+  destruct Hp as [<- | Hp]; [apply minl_le|].
+  apply minl_le_in, in_map_iff; exists p; split; [reflexivity | exact Hp].
+Qed.
+
+Lemma svalue_attained :
+  forall G, G <> [] -> exists p, In p (selections G) /\ svalue G = svalue_open p.
+Proof.
+  intros G HG.
+  assert (Hval := svalue_unfold G).
+  destruct (selections G) as [|q more] eqn:Esel.
+  - exfalso; apply HG, selections_nil_iff; exact Esel.
+  - destruct (minl_attained (map svalue_open more) (svalue_open q))
+      as [H | [y [Hy Hy2]]].
+    + exists q; split; [left; reflexivity | rewrite Hval, H; reflexivity].
+    + apply in_map_iff in Hy; destruct Hy as [r [<- Hr]].
+      exists r; split; [right; exact Hr | rewrite Hval, Hy2; reflexivity].
+Qed.
+
+Lemma svalue_const_options :
+  forall G z,
+    G <> [] ->
+    (forall p, In p (selections G) -> svalue_open p = z) ->
+    svalue G = z.
+Proof.
+  intros G z HG H.
+  destruct (svalue_attained G HG) as [p [Hp Hval]].
+  rewrite Hval; apply H; exact Hp.
+Qed.
+
+Lemma svalue_repeat_S :
+  forall C k, svalue (repeat C (S k)) = svopen C (svalue (repeat C k)).
+Proof.
+  intros C k.
+  apply svalue_const_options; [simpl; discriminate|].
+  intros p Hp; rewrite (selections_repeat k C p Hp); reflexivity.
+Qed.
+
+(** * Parity *)
+
+(** The capped recursion keeps the parity of the box count, exactly as the
+    uncapped one does. *)
+Theorem svalue_parity :
+  forall G, Z.even (svalue G) = Z.even (Z.of_nat (size G)).
+Proof.
+  assert (Haux : forall k G, (length G <= k)%nat ->
+            Z.even (svalue G) = Z.even (Z.of_nat (size G))).
+  { induction k as [|k IH]; intros G Hk.
+    - assert (HG : G = []) by (destruct G; simpl in Hk; [reflexivity | lia]).
+      subst G; reflexivity.
+    - destruct (list_eq_dec comp_eq_dec G []) as [-> | HNil]; [reflexivity|].
+      destruct (svalue_attained G HNil) as [p [Hp Hval]].
+      rewrite Hval; unfold svalue_open; rewrite svopen_parity.
+      pose proof (selections_size G p Hp) as Hsz.
+      pose proof (selections_length G p Hp) as Hlen.
+      rewrite Z.even_add, (IH (snd p)) by lia.
+      rewrite <- Z.even_add, <- Nat2Z.inj_add, Hsz; reflexivity. }
+  intros G; apply (Haux (length G)); lia.
+Qed.
+
+(** * An upper bound *)
+
+(** Under [swf] every component has a handout of at least one, so opening it
+    never pays more than the whole board. *)
+Lemma shand_pos : forall C, swf_comp C -> (1 <= shand C)%nat.
+Proof.
+  intros [j | j] H; unfold shand; apply Nat.min_glb; simpl in H |- *; lia.
+Qed.
+
+Lemma swf_tail : forall C G, swf (C :: G) -> swf G.
+Proof. intros C G H; inversion H; assumption. Qed.
+
+Lemma selections_swf :
+  forall G p, swf G -> In p (selections G) -> swf_comp (fst p) /\ swf (snd p).
+Proof.
+  induction G as [|C G IH]; intros p HG Hp; simpl in Hp; [destruct Hp|].
+  inversion HG as [|? ? HC HGs]; subst.
+  destruct Hp as [<- | Hp]; simpl; [split; assumption|].
+  apply in_map_iff in Hp; destruct Hp as [[Cq restq] [Heq Hq]].
+  simpl in Heq; subst p; simpl.
+  destruct (IH (Cq, restq) HGs Hq) as [H1 H2]; simpl in H1, H2.
+  split; [exact H1 | constructor; assumption].
+Qed.
+
+Theorem svalue_le_size :
+  forall G, swf G -> svalue G <= Z.of_nat (size G).
+Proof.
+  assert (Haux : forall k G, (length G <= k)%nat -> swf G ->
+            svalue G <= Z.of_nat (size G)).
+  { induction k as [|k IH]; intros G Hk HG.
+    - assert (HGnil : G = []) by (destruct G; simpl in Hk; [reflexivity | lia]).
+      subst G; rewrite svalue_nil; simpl; lia.
+    - destruct (list_eq_dec comp_eq_dec G []) as [-> | HNil];
+        [rewrite svalue_nil; simpl; lia|].
+      destruct (svalue_attained G HNil) as [p [Hp Hval]].
+      pose proof (selections_size G p Hp) as Hsz.
+      pose proof (selections_length G p Hp) as Hlen.
+      destruct (selections_swf G p HG Hp) as [HwC Hwrest].
+      pose proof (svalue_nonneg (snd p)) as Hpos.
+      assert (Hrec : svalue (snd p) <= Z.of_nat (size (snd p)))
+        by (apply IH; [lia | exact Hwrest]).
+      pose proof (shand_pos (fst p) HwC) as Hh.
+      assert (Hhz : 1 <= Z.of_nat (shand (fst p))) by lia.
+      rewrite Hval; unfold svalue_open, svopen.
+      apply Z.max_lub; rewrite <- Hsz, Nat2Z.inj_add; lia. }
+  intros G HG; apply (Haux (length G)); [lia | exact HG].
+Qed.
+
+(** * The uniform short families *)
+
+(** A one-box chain is taken whole or declined whole, so a heap of them is
+    worth the parity of its size. *)
+Theorem svalue_chain1_heap :
+  forall k, svalue (repeat (Chain 1) k) = if Nat.even k then 0 else 1.
+Proof.
+  induction k as [|k IH]; [reflexivity|].
+  rewrite svalue_repeat_S, IH, svopen_chain1.
+  rewrite Nat.even_succ, <- Nat.negb_even.
+  destruct (Nat.even k); reflexivity.
+Qed.
+
+(** A two-box chain has its whole self as handout, so declining takes
+    nothing and the heap alternates by two. *)
+Theorem svalue_chain2_heap :
+  forall k, svalue (repeat (Chain 2) k) = if Nat.even k then 0 else 2.
+Proof.
+  induction k as [|k IH]; [reflexivity|].
+  rewrite svalue_repeat_S, IH, svopen_chain2.
+  rewrite Nat.even_succ, <- Nat.negb_even.
+  destruct (Nat.even k); reflexivity.
+Qed.
+
+(** Both families are bounded by the smallest component, which is what makes
+    short chains worth so little: the controller cannot bank anything. *)
+Corollary svalue_chain1_le1 : forall k, svalue (repeat (Chain 1) k) <= 1.
+Proof.
+  intros k; rewrite svalue_chain1_heap; destruct (Nat.even k); lia.
+Qed.
+
+Corollary svalue_chain2_le2 : forall k, svalue (repeat (Chain 2) k) <= 2.
+Proof.
+  intros k; rewrite svalue_chain2_heap; destruct (Nat.even k); lia.
+Qed.
+
+(** * Mixed short chains *)
+
+(** If every option is worth one of two amounts, and both occur, the opener
+    takes the smaller. *)
+Lemma svalue_two_options :
+  forall G a b,
+    G <> [] ->
+    (forall p, In p (selections G) -> svalue_open p = a \/ svalue_open p = b) ->
+    (exists p, In p (selections G) /\ svalue_open p = a) ->
+    (exists p, In p (selections G) /\ svalue_open p = b) ->
+    svalue G = Z.min a b.
+Proof.
+  intros G a b HNil Hall [pa [Hpa Ha]] [pb [Hpb Hb]].
+  destruct (svalue_attained G HNil) as [p [Hp Hval]].
+  pose proof (svalue_le_open G pa Hpa) as La; rewrite Ha in La.
+  pose proof (svalue_le_open G pb Hpb) as Lb; rewrite Hb in Lb.
+  destruct (Hall p Hp) as [E | E]; rewrite Hval, E; lia.
+Qed.
+
+Definition smix (a b : nat) : position :=
+  repeat (Chain 1) a ++ repeat (Chain 2) b.
+
+Lemma smix_0 : forall b, smix 0 b = repeat (Chain 2) b.
+Proof. reflexivity. Qed.
+
+Lemma smix_S : forall a b, smix (S a) b = Chain 1 :: smix a b.
+Proof. reflexivity. Qed.
+
+Lemma smix_b0 : forall a, smix a 0 = repeat (Chain 1) a.
+Proof. intros a; unfold smix; simpl repeat; apply app_nil_r. Qed.
+
+Lemma smix_nonnil : forall a b, (0 < a + b)%nat -> smix a b <> [].
+Proof.
+  intros [|a] [|b] H; unfold smix; simpl; try lia; discriminate.
+Qed.
+
+(** Removing a component of a mixed short position leaves a mixed short
+    position, with the order of the list preserved. *)
+Lemma selections_smix :
+  forall a b p,
+    In p (selections (smix a b)) ->
+    (fst p = Chain 1 /\ exists a', a = S a' /\ snd p = smix a' b) \/
+    (fst p = Chain 2 /\ exists b', b = S b' /\ snd p = smix a b').
+Proof.
+  induction a as [|a IH]; intros b p Hp.
+  - rewrite smix_0 in Hp.
+    destruct b as [|b']; [simpl in Hp; destruct Hp|].
+    rewrite (selections_repeat b' (Chain 2) p Hp).
+    right; split; [reflexivity|]; exists b'; split; reflexivity.
+  - rewrite smix_S in Hp; simpl in Hp.
+    destruct Hp as [<- | Hp].
+    + left; split; [reflexivity|]; exists a; split; reflexivity.
+    + apply in_map_iff in Hp; destruct Hp as [[qc qr] [Heq Hq]].
+      cbn [fst snd] in Heq; subst p.
+      destruct (IH b (qc, qr) Hq) as [[Hc [a' [Ha Hs]]] | [Hc [b' [Hb Hs]]]];
+        cbn [fst snd] in Hc, Hs.
+      * left; cbn [fst snd]; split; [exact Hc|].
+        exists a; split; [reflexivity|].
+        rewrite Hs, Ha; reflexivity.
+      * right; cbn [fst snd]; split; [exact Hc|].
+        exists b'; split; [exact Hb|].
+        rewrite Hs; reflexivity.
+Qed.
+
+(** The closed form. A single one-box chain already pins the value to the
+    parity of the one-box chains, whatever the two-box chains do; with none
+    of them present the two-box chains alternate by two instead. *)
+Definition sm (a b : nat) : Z :=
+  match a with
+  | O => if Nat.even b then 0 else 2
+  | S _ => if Nat.even a then 0 else 1
+  end.
+
+Theorem svalue_smix : forall a b, svalue (smix a b) = sm a b.
+Proof.
+  assert (Haux : forall k a b, (a + b <= k)%nat -> svalue (smix a b) = sm a b).
+  { induction k as [|k IH]; intros a b Hk.
+    - assert (Ha : a = 0%nat) by lia; assert (Hb : b = 0%nat) by lia.
+      subst; reflexivity.
+    - destruct a as [|a'].
+      + rewrite smix_0, svalue_chain2_heap; reflexivity.
+      + destruct b as [|b'].
+        * rewrite smix_b0, svalue_chain1_heap; reflexivity.
+        * assert (Hne : smix (S a') (S b') <> []) by (apply smix_nonnil; lia).
+          assert (H1 : In (Chain 1, smix a' (S b'))
+                          (selections (smix (S a') (S b')))).
+          { rewrite smix_S; simpl; left; reflexivity. }
+          assert (HinC2 : In (Chain 2) (smix (S a') (S b'))).
+          { unfold smix; apply in_or_app; right; simpl; left; reflexivity. }
+          destruct (In_selections _ (Chain 2) HinC2) as [rest Hrest].
+          assert (Hr : rest = smix (S a') b').
+          { destruct (selections_smix (S a') (S b') (Chain 2, rest) Hrest)
+              as [[Hc _] | [_ [b'' [Hb Hs]]]]; [cbn in Hc; discriminate|].
+            cbn in Hs; injection Hb as Hb; subst b''; exact Hs. }
+          rewrite (svalue_two_options (smix (S a') (S b'))
+                     (svopen (Chain 1) (svalue (smix a' (S b'))))
+                     (svopen (Chain 2) (svalue (smix (S a') b'))) Hne).
+          -- rewrite (IH a' (S b')) by lia.
+             rewrite (IH (S a') b') by lia.
+             rewrite svopen_chain1, svopen_chain2.
+             destruct a' as [|a''].
+             ++ cbn [sm]; destruct (Nat.even (S b')); cbn; lia.
+             ++ cbn [sm].
+                rewrite (Nat.even_succ (S a'')), <- Nat.negb_even.
+                destruct (Nat.even (S a'')); cbn; lia.
+          -- intros p Hp.
+             destruct (selections_smix (S a') (S b') p Hp)
+               as [[Hc [a2 [Ha Hs]]] | [Hc [b2 [Hb Hs]]]].
+             ++ left; unfold svalue_open; rewrite Hc, Hs.
+                injection Ha as Ha; subst a2; reflexivity.
+             ++ right; unfold svalue_open; rewrite Hc, Hs.
+                injection Hb as Hb; subst b2; reflexivity.
+          -- exists (Chain 1, smix a' (S b')); split;
+               [exact H1 | reflexivity].
+          -- exists (Chain 2, rest); split; [exact Hrest|].
+             unfold svalue_open; cbn [fst snd]; rewrite Hr; reflexivity. }
+  intros a b; apply (Haux (a + b)%nat); lia.
+Qed.
+
+(** * The closed form where the chains are long *)
+
+(** Wherever the uncapped theory applies, the capped value is the full closed
+    form of [DotsAndBoxes.value_complete]. *)
+Theorem svalue_complete_wf :
+  forall G, wf G -> G <> [] -> svalue G = v41 G.
+Proof.
+  intros G Hw Hn; rewrite (svalue_wf G Hw); apply value_complete; assumption.
+Qed.
+
+(** * Where the capped and uncapped theories part *)
+
+(** With a one-box chain beside a three-chain the two recursions part: the
+    uncapped one credits the single box with a two-box handout it does not
+    have and reports zero, where the capped one reports two. *)
+Example short_chain_differs :
+  value [Chain 1; Chain 3] = 0 /\ svalue [Chain 1; Chain 3] = 2.
+Proof. split; reflexivity. Qed.
+
+(** On a heap of one-box chains alone the two happen to agree, so the gap is
+    not visible until a long component is present. *)
+Example short_chain_agrees_alone :
+  value [Chain 1; Chain 1] = 0 /\ svalue [Chain 1; Chain 1] = 0.
+Proof. split; reflexivity. Qed.
+
+(** The two agree again as soon as every chain is long. *)
+Example svalue_agrees_long :
+  svalue [Chain 3; Chain 3] = value [Chain 3; Chain 3].
+Proof. apply svalue_wf; repeat constructor. Qed.
+
+(** ****************************************************************** *)
+(** Scoring games, and the loony endgame as one of them.
+
+    A scoring game is a rose tree carrying, at each node, the score a finished
+    game pays to Left, the player whose turn it is, and that player's options.
+    The mover is written into the node rather than alternating, because in a
+    scoring game a player who scores keeps the move.
+
+    [eg] builds the loony endgame of [GameTrees.DotsAndBoxes] as such a game,
+    with the moves spelled out: the opener names a component, and the
+    controller either takes it whole and becomes the opener, or leaves the
+    handout and stays in control. Boxes are banked as they are taken, with the
+    sign of the player taking them. [score_eg] proves the optimal score of
+    that game is the [value] of the position, so [value] is the score of a
+    game whose rules are written down rather than a recursion asserted to
+    model one. *)
+
+Import ListNotations.
+
+Open Scope Z_scope.
+
+(** * Scoring games *)
+
+(** [SG s lft opts]: with [opts] empty the game is over and pays [s] to Left;
+    otherwise the player named by [lft] chooses among [opts]. *)
+Inductive sgame : Type :=
+| SG : Z -> bool -> list sgame -> sgame.
+
+Definition maxl (x : Z) (l : list Z) : Z := fold_left Z.max l x.
+
+(** The optimal score to Left, Left maximising and Right minimising. *)
+Fixpoint score (g : sgame) : Z :=
+  match g with
+  | SG s lft opts =>
+      match map score opts with
+      | [] => s
+      | v :: vs => if lft then maxl v vs else minl v vs
+      end
+  end.
+
+Lemma score_node :
+  forall s lft opts,
+    score (SG s lft opts) =
+    match map score opts with
+    | [] => s
+    | v :: vs => if lft then maxl v vs else minl v vs
+    end.
+Proof. reflexivity. Qed.
+
+Lemma score_two_left :
+  forall s a b, score (SG s true [a; b]) = Z.max (score a) (score b).
+Proof. reflexivity. Qed.
+
+Lemma score_two_right :
+  forall s a b, score (SG s false [a; b]) = Z.min (score a) (score b).
+Proof. reflexivity. Qed.
+
+(** * Banking a constant through a game *)
+
+Lemma minl_add_shift :
+  forall l a x,
+    fold_left Z.min (map (Z.add a) l) (a + x) = a + fold_left Z.min l x.
+Proof.
+  induction l as [|y l IH]; intros a x; simpl; [reflexivity|].
+  replace (Z.min (a + x) (a + y)) with (a + Z.min x y) by lia.
+  apply IH.
+Qed.
+
+Lemma maxl_sub_shift :
+  forall l a x,
+    fold_left Z.max (map (fun z => a - z) l) (a - x) = a - fold_left Z.min l x.
+Proof.
+  induction l as [|y l IH]; intros a x; simpl; [reflexivity|].
+  replace (Z.max (a - x) (a - y)) with (a - Z.min x y) by lia.
+  apply IH.
+Qed.
+
+(** * The loony endgame as a scoring game *)
+
+(** Boxes taken by the player who is not the opener, banked with that
+    player's sign. Left is [true]. *)
+Definition bank (p : bool) (acc x : Z) : Z := if p then acc - x else acc + x.
+
+Lemma bank_true : forall acc x, bank true acc x = acc - x.
+Proof. reflexivity. Qed.
+
+Lemma bank_false : forall acc x, bank false acc x = acc + x.
+Proof. reflexivity. Qed.
+
+(** [eg fuel acc G p]: the endgame on [G], with [acc] already banked to Left
+    and the opener named by [p]. *)
+Fixpoint eg (fuel : nat) (acc : Z) (G : position) (p : bool) : sgame :=
+  match fuel with
+  | O => SG acc p []
+  | S f =>
+      match selections G with
+      | [] => SG acc p []
+      | _ :: _ =>
+          SG acc p
+            (map (fun pr =>
+               SG acc (negb p)
+                 [ eg f (bank p acc (Z.of_nat (csize (fst pr)))) (snd pr) (negb p) ;
+                   eg f (bank p acc (Z.of_nat (csize (fst pr))
+                                     - 2 * Z.of_nat (hand (fst pr)))) (snd pr) p ])
+             (selections G))
+      end
+  end.
+
+Lemma eg_cons :
+  forall f acc G p,
+    selections G <> [] ->
+    eg (S f) acc G p =
+    SG acc p
+      (map (fun pr =>
+         SG acc (negb p)
+           [ eg f (bank p acc (Z.of_nat (csize (fst pr)))) (snd pr) (negb p) ;
+             eg f (bank p acc (Z.of_nat (csize (fst pr))
+                               - 2 * Z.of_nat (hand (fst pr)))) (snd pr) p ])
+       (selections G)).
+Proof.
+  intros f acc G p H; simpl eg.
+  destruct (selections G) as [|a l] eqn:E; [contradiction | reflexivity].
+Qed.
+
+(** * The endgame scores its value *)
+
+Theorem score_eg :
+  forall fuel acc G p,
+    (length G <= fuel)%nat ->
+    score (eg fuel acc G p) = if p then acc - value G else acc + value G.
+Proof.
+  induction fuel as [|f IH]; intros acc G p Hf.
+  - assert (HG : G = []) by (destruct G; simpl in Hf; [reflexivity | lia]).
+    subst G; rewrite value_nil; simpl score; destruct p; lia.
+  - destruct (list_eq_dec comp_eq_dec G []) as [-> | HNil].
+    { simpl eg; simpl score; rewrite value_nil; destruct p; lia. }
+    assert (Hsel : selections G <> [])
+      by (intros Hz; apply HNil, selections_nil_iff; exact Hz).
+    rewrite (eg_cons f acc G p Hsel), score_node, map_map.
+    (* every option is worth the handout algebra, banked *)
+    assert (Hopt : forall pr, In pr (selections G) ->
+      score (SG acc (negb p)
+               [ eg f (bank p acc (Z.of_nat (csize (fst pr)))) (snd pr) (negb p) ;
+                 eg f (bank p acc (Z.of_nat (csize (fst pr))
+                                   - 2 * Z.of_nat (hand (fst pr)))) (snd pr) p ])
+      = bank p acc (value_open pr)).
+    { intros pr Hpr.
+      assert (Hlen : (length (snd pr) <= f)%nat)
+        by (pose proof (selections_length G pr Hpr); lia).
+      assert (Ht : forall a, score (eg f a (snd pr) true) = a - value (snd pr))
+        by (intros a; rewrite (IH a (snd pr) true) by exact Hlen; reflexivity).
+      assert (Hfa : forall a, score (eg f a (snd pr) false) = a + value (snd pr))
+        by (intros a; rewrite (IH a (snd pr) false) by exact Hlen; reflexivity).
+      unfold value_open.
+      destruct (Z.le_gt_cases (value (snd pr)) (Z.of_nat (hand (fst pr))))
+        as [Hle | Hgt].
+      - rewrite (controller_gives_up (fst pr) (value (snd pr)) Hle).
+        unfold give_up_control.
+        destruct p; cbn [negb bank].
+        + rewrite score_two_right, Hfa, Ht; lia.
+        + rewrite score_two_left, Ht, Hfa; lia.
+      - rewrite (controller_keeps (fst pr) (value (snd pr)) ltac:(lia)).
+        unfold keep_control.
+        destruct p; cbn [negb bank].
+        + rewrite score_two_right, Hfa, Ht; lia.
+        + rewrite score_two_left, Ht, Hfa; lia. }
+    rewrite (map_ext_in _ (fun pr => bank p acc (value_open pr))
+               (selections G) Hopt).
+    (* now read off the opener's choice *)
+    pose proof (value_unfold G) as Hval.
+    destruct (selections G) as [|s0 more] eqn:Esel; [contradiction|].
+    simpl map.
+    assert (Hshape : map (fun pr => bank p acc (value_open pr)) more =
+                     map (fun z => bank p acc z) (map value_open more))
+      by (rewrite map_map; reflexivity).
+    rewrite Hshape.
+    destruct p; unfold bank, maxl, minl in *; rewrite Hval.
+    + rewrite maxl_sub_shift; reflexivity.
+    + rewrite minl_add_shift; reflexivity.
+Qed.
+
+(** The endgame value, read off the game rather than the recursion: with
+    Right to open, the score Left secures is exactly [value]. *)
+Corollary score_eg_root :
+  forall G, score (eg (length G) 0 G false) = value G.
+Proof. intros G; rewrite score_eg by lia; lia. Qed.
+
+(** And with Left to open it is its negation, since the roles are swapped. *)
+Corollary score_eg_root_left :
+  forall G, score (eg (length G) 0 G true) = - value G.
+Proof. intros G; rewrite score_eg by lia; lia. Qed.
+
+(** ****************************************************************** *)
+(** The standard scoring game, and where the loony endgame sits relative to
+    it.
+
+    Ettinger, and Milley and Renault after him, write a scoring game with the
+    two option lists separated and the turn carried by which of two mutually
+    recursive values is being read: [Lsc] is the score Left secures with Left
+    to move, [Rsc] with Right to move. Play alternates by construction, and a
+    player with no option ends the game at its score.
+
+    [GameTrees.DotsAndBoxes] instead writes the mover into the node. [embed] sends
+    that form to this one and [score_embed] proves the two agree wherever the
+    movers alternate, so the bespoke type is a conservative notation for the
+    standard one on the alternating fragment.
+
+    [eg_not_alternates] is why the bespoke type was convenient. The loony
+    endgame does not alternate: a controller who takes a whole component
+    scores and therefore opens the next one, moving twice in a row.
+
+    It is still a standard scoring game. [pad] simulates the repeated move by
+    giving the other player a single forced option, which leaves the value
+    alone, and [score_pad] proves the two readings agree on every game with
+    no alternation hypothesis. [value_is_standard_score] is the consequence:
+    the Dots and Boxes endgame value is the score a game of Ettinger and
+    Milley-Renault form pays Left with Right to move. *)
+
+Open Scope Z_scope.
+
+(** * The standard form *)
+
+(** A score, Left's options, Right's options. *)
+Inductive scgame : Type :=
+| SCg : Z -> list scgame -> list scgame -> scgame.
+
+Definition lopts (g : scgame) : list scgame := match g with SCg _ L _ => L end.
+Definition ropts (g : scgame) : list scgame := match g with SCg _ _ R => R end.
+Definition sc (g : scgame) : Z := match g with SCg s _ _ => s end.
+
+(** Left maximises, Right minimises, and a player with no option ends the
+    game. The two values are read off one recursion so the definition passes
+    the guard checker without a mutual fixpoint. *)
+Fixpoint scv (g : scgame) : Z * Z :=
+  match g with
+  | SCg s L R =>
+      (match map (fun x => snd (scv x)) L with
+       | [] => s
+       | v :: vs => maxl v vs
+       end,
+       match map (fun x => fst (scv x)) R with
+       | [] => s
+       | v :: vs => minl v vs
+       end)
+  end.
+
+Definition Lsc (g : scgame) : Z := fst (scv g).
+Definition Rsc (g : scgame) : Z := snd (scv g).
+
+Lemma Lsc_eq :
+  forall s L R,
+    Lsc (SCg s L R) =
+    match map Rsc L with [] => s | v :: vs => maxl v vs end.
+Proof. reflexivity. Qed.
+
+Lemma Rsc_eq :
+  forall s L R,
+    Rsc (SCg s L R) =
+    match map Lsc R with [] => s | v :: vs => minl v vs end.
+Proof. reflexivity. Qed.
+
+(** A game in which neither player can move is worth its score to both. *)
+Lemma Lsc_leaf : forall s, Lsc (SCg s [] []) = s.
+Proof. reflexivity. Qed.
+
+Lemma Rsc_leaf : forall s, Rsc (SCg s [] []) = s.
+Proof. reflexivity. Qed.
+
+(** * The mover-tagged form *)
+
+Definition mover (g : sgame) : bool := match g with SG _ lft _ => lft end.
+Definition sopts (g : sgame) : list sgame := match g with SG _ _ o => o end.
+Definition sval (g : sgame) : Z := match g with SG s _ _ => s end.
+
+(** Induction supplying the hypothesis for every option. *)
+Fixpoint sgame_forall_ind
+    (P : sgame -> Prop)
+    (pf : forall (s : Z) (lft : bool) (opts : list sgame),
+            Forall P opts -> P (SG s lft opts))
+    (g : sgame) {struct g} : P g :=
+  match g with
+  | SG s lft opts =>
+      pf s lft opts
+        (list_ind (Forall P) (Forall_nil P)
+           (fun x xs IHxs => Forall_cons x (sgame_forall_ind P pf x) IHxs) opts)
+  end.
+
+(** The mover alternates down every line. *)
+Inductive alternates : sgame -> Prop :=
+| alternates_SG :
+    forall s lft opts,
+      Forall (fun x => mover x = negb lft) opts ->
+      Forall alternates opts ->
+      alternates (SG s lft opts).
+
+Lemma alternates_movers :
+  forall s lft opts,
+    alternates (SG s lft opts) -> Forall (fun x => mover x = negb lft) opts.
+Proof. intros s lft opts H; inversion H; assumption. Qed.
+
+Lemma alternates_opts :
+  forall s lft opts, alternates (SG s lft opts) -> Forall alternates opts.
+Proof. intros s lft opts H; inversion H; assumption. Qed.
+
+(** * The embedding *)
+
+(** The player to move keeps the options; the other side has none. *)
+Fixpoint embed (g : sgame) : scgame :=
+  match g with
+  | SG s lft opts =>
+      if lft then SCg s (map embed opts) [] else SCg s [] (map embed opts)
+  end.
+
+Lemma embed_left :
+  forall s opts, embed (SG s true opts) = SCg s (map embed opts) [].
+Proof. reflexivity. Qed.
+
+Lemma embed_right :
+  forall s opts, embed (SG s false opts) = SCg s [] (map embed opts).
+Proof. reflexivity. Qed.
+
+(** On an alternating game the bespoke score is the standard one, read from
+    the side whose turn it is. *)
+Theorem score_embed :
+  forall g,
+    alternates g ->
+    score g = if mover g then Lsc (embed g) else Rsc (embed g).
+Proof.
+  refine (sgame_forall_ind
+            (fun g => alternates g ->
+               score g = if mover g then Lsc (embed g) else Rsc (embed g)) _).
+  intros s lft opts IH Halt.
+  pose proof (alternates_movers s lft opts Halt) as Hmov.
+  pose proof (alternates_opts s lft opts Halt) as Hsub.
+  destruct lft; cbn [mover].
+  - rewrite embed_left, Lsc_eq, map_map.
+    rewrite score_node.
+    assert (Hmap : map score opts = map (fun x => Rsc (embed x)) opts).
+    { apply map_ext_in; intros x Hx.
+      rewrite (proj1 (Forall_forall _ opts) IH x Hx)
+        by (apply (proj1 (Forall_forall _ opts) Hsub x Hx)).
+      rewrite (proj1 (Forall_forall _ opts) Hmov x Hx); reflexivity. }
+    rewrite Hmap; reflexivity.
+  - rewrite embed_right, Rsc_eq, map_map.
+    rewrite score_node.
+    assert (Hmap : map score opts = map (fun x => Lsc (embed x)) opts).
+    { apply map_ext_in; intros x Hx.
+      rewrite (proj1 (Forall_forall _ opts) IH x Hx)
+        by (apply (proj1 (Forall_forall _ opts) Hsub x Hx)).
+      rewrite (proj1 (Forall_forall _ opts) Hmov x Hx); reflexivity. }
+    rewrite Hmap; reflexivity.
+Qed.
+
+(** * The loony endgame is not alternating *)
+
+(** Every game [eg] builds names its own mover. *)
+Lemma mover_eg : forall f acc G p, mover (eg f acc G p) = p.
+Proof.
+  intros [|f] acc G p; [reflexivity|].
+  simpl eg; destruct (selections G); reflexivity.
+Qed.
+
+(** One unfolding, naming the controller's two replies. *)
+Lemma sopts_eg :
+  forall f acc G p,
+    selections G <> [] ->
+    sopts (eg (S f) acc G p) =
+    map (fun pr =>
+           SG acc (negb p)
+             [ eg f (bank p acc (Z.of_nat (csize (fst pr)))) (snd pr) (negb p) ;
+               eg f (bank p acc (Z.of_nat (csize (fst pr))
+                                 - 2 * Z.of_nat (hand (fst pr)))) (snd pr) p ])
+        (selections G).
+Proof.
+  intros f acc G p H; rewrite (eg_cons f acc G p H); reflexivity.
+Qed.
+
+(** The controller who takes a whole component scores, and so opens the next
+    one: the same player moves twice, which an alternating game never does. *)
+Theorem eg_not_alternates :
+  forall f acc G p,
+    selections G <> [] -> ~ alternates (eg (S f) acc G p).
+Proof.
+  intros f acc G p Hsel Halt.
+  destruct (selections G) as [|pr more] eqn:Esel; [contradiction|].
+  assert (Hne : selections G <> []) by (rewrite Esel; discriminate).
+  set (child := SG acc (negb p)
+                  [ eg f (bank p acc (Z.of_nat (csize (fst pr)))) (snd pr) (negb p) ;
+                    eg f (bank p acc (Z.of_nat (csize (fst pr))
+                                      - 2 * Z.of_nat (hand (fst pr)))) (snd pr) p ]).
+  assert (Hin : In child (sopts (eg (S f) acc G p))).
+  { rewrite (sopts_eg f acc G p Hne), Esel; left; reflexivity. }
+  (* the endgame node is an [SG], so its options carry the alternation *)
+  assert (Hshape : eg (S f) acc G p = SG acc p (sopts (eg (S f) acc G p))).
+  { rewrite (eg_cons f acc G p Hne); reflexivity. }
+  rewrite Hshape in Halt.
+  pose proof (alternates_opts _ _ _ Halt) as Hsub.
+  pose proof (proj1 (Forall_forall _ _) Hsub child Hin) as Hchild.
+  (* inside the child, the take-it-all reply repeats the mover *)
+  pose proof (alternates_movers _ _ _ Hchild) as Hmov.
+  assert (Hgc : In (eg f (bank p acc (Z.of_nat (csize (fst pr)))) (snd pr) (negb p))
+                   [ eg f (bank p acc (Z.of_nat (csize (fst pr)))) (snd pr) (negb p) ;
+                     eg f (bank p acc (Z.of_nat (csize (fst pr))
+                                       - 2 * Z.of_nat (hand (fst pr)))) (snd pr) p ])
+    by (left; reflexivity).
+  pose proof (proj1 (Forall_forall _ _) Hmov _ Hgc) as Hbad.
+  cbv beta in Hbad.
+  rewrite mover_eg in Hbad.
+  destruct p; simpl in Hbad; discriminate.
+Qed.
+
+(** So the loony endgame is a scoring game that the alternating form cannot
+    express, and [score_embed] does not apply to it. The extra move a scoring
+    player earns is exactly the difference. *)
+Corollary eg_outside_standard_form :
+  forall f acc G p,
+    selections G <> [] ->
+    ~ (alternates (eg (S f) acc G p) /\
+       score (eg (S f) acc G p)
+       = if p then Lsc (embed (eg (S f) acc G p))
+              else Rsc (embed (eg (S f) acc G p))).
+Proof.
+  intros f acc G p Hsel [Halt _].
+  exact (eg_not_alternates f acc G p Hsel Halt).
+Qed.
+
+(** * A faithful embedding through forced moves *)
+
+(** The alternating form cannot let a player move twice, but it can make the
+    other player's move forced: a position where one side has exactly one
+    option leaves that side no choice, so the value is unchanged. [pad]
+    inserts such a move wherever the mover repeats, and so sends every
+    mover-tagged game, alternating or not, into the standard form. *)
+Fixpoint pad (g : sgame) : scgame :=
+  match g with
+  | SG s lft opts =>
+      if lft
+      then SCg s (map (fun o => if mover o then SCg s [] [pad o] else pad o)
+                      opts) []
+      else SCg s [] (map (fun o => if mover o then pad o else SCg s [pad o] [])
+                         opts)
+  end.
+
+Lemma pad_left :
+  forall s opts,
+    pad (SG s true opts) =
+    SCg s (map (fun o => if mover o then SCg s [] [pad o] else pad o) opts) [].
+Proof. reflexivity. Qed.
+
+Lemma pad_right :
+  forall s opts,
+    pad (SG s false opts) =
+    SCg s [] (map (fun o => if mover o then pad o else SCg s [pad o] []) opts).
+Proof. reflexivity. Qed.
+
+Lemma Rsc_forced : forall s x, Rsc (SCg s [] [x]) = Lsc x.
+Proof. reflexivity. Qed.
+
+Lemma Lsc_forced : forall s x, Lsc (SCg s [x] []) = Rsc x.
+Proof. reflexivity. Qed.
+
+(** With the forced moves in place the two readings agree on every game, with
+    no alternation hypothesis. *)
+Theorem score_pad :
+  forall g, score g = if mover g then Lsc (pad g) else Rsc (pad g).
+Proof.
+  refine (sgame_forall_ind
+            (fun g => score g = if mover g then Lsc (pad g) else Rsc (pad g)) _).
+  intros s lft opts IH; destruct lft; cbn [mover].
+  - rewrite pad_left, Lsc_eq, map_map, score_node.
+    assert (Hmap : map score opts
+                 = map (fun o => Rsc (if mover o then SCg s [] [pad o] else pad o))
+                       opts).
+    { apply map_ext_in; intros o Ho.
+      rewrite (proj1 (Forall_forall _ opts) IH o Ho).
+      destruct (mover o); [rewrite Rsc_forced |]; reflexivity. }
+    rewrite Hmap; reflexivity.
+  - rewrite pad_right, Rsc_eq, map_map, score_node.
+    assert (Hmap : map score opts
+                 = map (fun o => Lsc (if mover o then pad o else SCg s [pad o] []))
+                       opts).
+    { apply map_ext_in; intros o Ho.
+      rewrite (proj1 (Forall_forall _ opts) IH o Ho).
+      destruct (mover o); [| rewrite Lsc_forced]; reflexivity. }
+    rewrite Hmap; reflexivity.
+Qed.
+
+(** So the loony endgame is a standard scoring game after all: not an
+    alternating one, but the image of one under [pad]. *)
+Corollary score_eg_standard :
+  forall f acc G p,
+    score (eg f acc G p) =
+    if p then Lsc (pad (eg f acc G p)) else Rsc (pad (eg f acc G p)).
+Proof.
+  intros f acc G p; rewrite (score_pad (eg f acc G p)), mover_eg; reflexivity.
+Qed.
+
+(** And the Dots and Boxes endgame value is the score a standard scoring game
+    pays Left with Right to move. *)
+Corollary value_is_standard_score :
+  forall G, value G = Rsc (pad (eg (length G) 0 G false)).
+Proof.
+  intros G; rewrite <- (score_eg_root G), score_eg_standard; reflexivity.
+Qed.
+
+(** * An alternating example, for contrast *)
+
+(** A one-move game in which Left chooses between two finished positions.
+    Here the movers do alternate and the two readings agree. *)
+Definition demo : sgame := SG 0 true [SG 3 false []; SG 5 false []].
+
+Example demo_alternates : alternates demo.
+Proof.
+  apply alternates_SG.
+  - repeat constructor.
+  - repeat (constructor; [apply alternates_SG; repeat constructor |]).
+    constructor.
+Qed.
+
+Example demo_score : score demo = 5.
+Proof. vm_compute; reflexivity. Qed.
+
+Example demo_std : Lsc (embed demo) = 5.
+Proof. vm_compute; reflexivity. Qed.
+
+Example demo_agree : score demo = Lsc (embed demo).
+Proof. reflexivity. Qed.
+
+(** ****************************************************************** *)
+(** Allcock's opener strategy.
+
+    The standard move opens a three-chain if one is present, otherwise a
+    shortest loop if a loop is present, otherwise a shortest chain. Allcock's
+    Theorem 1.1 says that opening the shortest loop is optimal in three named
+    cases and that the standard move is optimal in every other, the three
+    cases being
+
+      (i)   c(G) >= 2 and G is a three-chain together with one or more loops;
+      (ii)  c(G) in {0, 1, -1} and G holds a four-loop, and what is left after
+            removing one four-loop is not exactly three three-chains;
+      (iii) c(G) <= -2 and G holds a four-loop and a three-chain, and what is
+            left after removing one of each has size divisible by four and no
+            three-chains.
+
+    [allcock_move] is that strategy. It is stated here and checked by
+    computation through [allcock_okb], which compares the move it names
+    against the value; the theorem itself is not proved. [example_1_2] is
+    Allcock's own worked example, machine-checked. *)
+
+Import ListNotations.
+
+Open Scope Z_scope.
+
+(** * Choosing a component *)
+
+Fixpoint pick_min (best : comp * position) (l : list (comp * position))
+  : comp * position :=
+  match l with
+  | [] => best
+  | q :: r =>
+      pick_min (if (csize (fst q) <? csize (fst best))%nat then q else best) r
+  end.
+
+Lemma pick_min_In :
+  forall l b, In (pick_min b l) (b :: l).
+Proof.
+  induction l as [|q l IH]; intros b; simpl; [left; reflexivity|].
+  destruct ((csize (fst q) <? csize (fst b))%nat).
+  - destruct (IH q) as [H | H]; [right; left; exact H | right; right; exact H].
+  - destruct (IH b) as [H | H]; [left; exact H | right; right; exact H].
+Qed.
+
+(** The shortest component passing a test, if there is one. *)
+Definition shortest_of (f : comp -> bool) (G : position)
+  : option (comp * position) :=
+  match filter (fun p => f (fst p)) (selections G) with
+  | [] => None
+  | p :: r => Some (pick_min p r)
+  end.
+
+Lemma shortest_of_In :
+  forall f G p, shortest_of f G = Some p -> In p (selections G).
+Proof.
+  intros f G p H; unfold shortest_of in H.
+  destruct (filter (fun q => f (fst q)) (selections G)) as [|b l] eqn:E;
+    [discriminate|].
+  injection H as <-.
+  assert (Hin : In (pick_min b l) (b :: l)) by apply pick_min_In.
+  rewrite <- E in Hin.
+  apply filter_In in Hin; tauto.
+Qed.
+
+Definition any_comp (_ : comp) : bool := true.
+
+(** Open a three-chain if there is one, otherwise a shortest loop, otherwise
+    a shortest chain. *)
+Definition standard_move (G : position) : option (comp * position) :=
+  match shortest_of is_3chain_b G with
+  | Some p => Some p
+  | None =>
+      match shortest_of is_loop_b G with
+      | Some p => Some p
+      | None => shortest_of any_comp G
+      end
+  end.
+
+Lemma standard_move_In :
+  forall G p, standard_move G = Some p -> In p (selections G).
+Proof.
+  intros G p H; unfold standard_move in H.
+  destruct (shortest_of is_3chain_b G) eqn:E3;
+    [injection H as <-; apply (shortest_of_In is_3chain_b G); exact E3|].
+  destruct (shortest_of is_loop_b G) eqn:EL;
+    [injection H as <-; apply (shortest_of_In is_loop_b G); exact EL|].
+  apply (shortest_of_In any_comp G); exact H.
+Qed.
+
+(** * The three cases *)
+
+Definition count_loops (G : position) : nat := length (filter is_loop_b G).
+
+Definition drop_first (f : comp -> bool) (G : position) : position :=
+  match filter (fun p => f (fst p)) (selections G) with
+  | [] => G
+  | p :: _ => snd p
+  end.
+
+(** [G] is one three-chain together with one or more loops. *)
+Definition three_plus_loops_b (G : position) : bool :=
+  ((count3 G =? 1)%nat && (1 <=? count_loops G)%nat &&
+   ((count_loops G + 1)%nat =? length G)%nat)%bool.
+
+(** After removing one four-loop, exactly three three-chains remain. *)
+Definition rest_is_three_threes_b (G : position) : bool :=
+  let H := drop_first is_4loop_b G in
+  ((count3 H =? 3)%nat && (length H =? 3)%nat)%bool.
+
+Definition case_i (G : position) : bool :=
+  ((2 <=? cval G) && three_plus_loops_b G)%bool.
+
+Definition case_ii (G : position) : bool :=
+  ((cval G <=? 1) && (-1 <=? cval G) && (1 <=? count4 G)%nat &&
+   negb (rest_is_three_threes_b G))%bool.
+
+Definition case_iii (G : position) : bool :=
+  let H := drop_first is_3chain_b (drop_first is_4loop_b G) in
+  ((cval G <=? -2) && (1 <=? count4 G)%nat && (1 <=? count3 G)%nat &&
+   ((Z.of_nat (size H) mod 4) =? 0) && (count3 H =? 0)%nat)%bool.
+
+(** * The strategy *)
+
+Definition allcock_move (G : position) : option (comp * position) :=
+  if (case_i G || case_ii G || case_iii G)%bool
+  then shortest_of is_loop_b G
+  else standard_move G.
+
+Lemma allcock_move_In :
+  forall G p, allcock_move G = Some p -> In p (selections G).
+Proof.
+  intros G p H; unfold allcock_move in H.
+  destruct (case_i G || case_ii G || case_iii G)%bool;
+    [apply (shortest_of_In is_loop_b G); exact H
+     | apply standard_move_In; exact H].
+Qed.
+
+(** Whenever the strategy names a move on a nonempty position, that move is
+    legal and, if it attains the value, no opening is better. *)
+Theorem allcock_move_optimal_iff :
+  forall G p,
+    G <> [] -> allcock_move G = Some p ->
+    (value G = value_open p <->
+     forall q, In q (selections G) -> value_open p <= value_open q).
+Proof.
+  intros G p HNil H.
+  apply opener_optimal_iff; [exact HNil | apply allcock_move_In; exact H].
+Qed.
+
+(** * Checking the strategy on a position *)
+
+Definition allcock_okb (G : position) : bool :=
+  match allcock_move G with
+  | None => true
+  | Some p => Z.eqb (value G) (value_open p)
+  end.
+
+Theorem allcock_okb_sound :
+  forall G p,
+    allcock_okb G = true -> allcock_move G = Some p ->
+    value G = value_open p /\
+    (forall q, In q (selections G) -> value_open p <= value_open q).
+Proof.
+  intros G p Hok Hm.
+  assert (HNil : G <> []).
+  { intros ->; unfold allcock_move, shortest_of, standard_move in Hm;
+      simpl in Hm; discriminate. }
+  unfold allcock_okb in Hok; rewrite Hm in Hok.
+  apply Z.eqb_eq in Hok.
+  split; [exact Hok|].
+  apply (allcock_move_optimal_iff G p HNil Hm); exact Hok.
+Qed.
+
+(** * Allcock's Lemma 3.1 *)
+
+(** A three-chain and a loop: opening the loop attains the value and opening
+    the chain costs exactly two. This is the base the case analysis of
+    Theorem 1.1 bottoms out on. *)
+Theorem open_loop_optimal_3_loop :
+  forall l, (4 <= l)%nat ->
+    value_open (Loop l, [Chain 3]) = value [Chain 3; Loop l] /\
+    value_open (Chain 3, [Loop l]) = value [Chain 3; Loop l] + 2.
+Proof.
+  intros l Hl.
+  rewrite (value_three_loop l Hl), cval_three_loop.
+  unfold value_open; cbn [fst snd].
+  rewrite !value_single; cbn [csize].
+  split.
+  - rewrite controller_gives_up by (cbn [hand]; lia).
+    unfold give_up_control; cbn [csize]; lia.
+  - rewrite controller_keeps by (cbn [hand]; lia).
+    unfold keep_control; cbn [csize hand]; lia.
+Qed.
+
+(** So on those positions the loop is strictly the better opening. *)
+Corollary loop_strictly_better :
+  forall l, (4 <= l)%nat ->
+    value_open (Loop l, [Chain 3]) < value_open (Chain 3, [Loop l]).
+Proof.
+  intros l Hl; destruct (open_loop_optimal_3_loop l Hl) as [H1 H2].
+  rewrite H1, H2; lia.
+Qed.
+
+(** * Allcock's Example 1.2 *)
+
+(** Five three-chains, a four-loop and an eight-loop. The controlled value is
+    [27 - 4*5 - 8*2 + 6 = -3], so case (iii) is the only candidate and it
+    fails because what is left has three-chains; the standard move applies
+    and opens a three-chain. *)
+Definition example_G : position :=
+  [Chain 3; Chain 3; Chain 3; Chain 3; Chain 3; Loop 4; Loop 8].
+
+Example example_cval : cval example_G = -3.
+Proof. vm_compute; reflexivity. Qed.
+
+Example example_cases :
+  (case_i example_G, case_ii example_G, case_iii example_G)
+  = (false, false, false).
+Proof. vm_compute; reflexivity. Qed.
+
+Example example_opens_three_chain :
+  match allcock_move example_G with
+  | Some p => fst p = Chain 3
+  | None => False
+  end.
+Proof. vm_compute; reflexivity. Qed.
+
+(** The move the strategy names attains the value, so it is optimal. *)
+Example example_1_2 : allcock_okb example_G = true.
+Proof. vm_compute; reflexivity. Qed.
+
+(** ****************************************************************** *)
+(** An optimality criterion for openings.
+
+    [GameTrees.DotsAndBoxes] names Allcock's strategy and checks it position
+    by position, but proves nothing about when an opening is optimal. The
+    engine of Allcock's Theorem 1.1 is the observation that an opening which
+    leaves the terminal bonus alone, and leaves behind at least the handout it
+    gives away, realises the controlled value and is therefore optimal.
+
+    [open_optimal_of_step] is that criterion, and [open_loop_optimal_ge4] and
+    [open_chain_optimal_ge2] are the two instances the case analysis of
+    Theorem 1.1 rests on. The theorem itself is still not proved: its three
+    named cases turn on comparing the shortest loop against the standard move
+    when the criterion does not apply, and that comparison is not made here. *)
+
+Open Scope Z_scope.
+
+(** * The criterion *)
+
+(** An opening that leaves the bonus alone and leaves at least its own
+    handout behind is worth the controlled value, and so no opening is
+    better. *)
+Theorem open_optimal_of_step :
+  forall G p,
+    wf G -> In p (selections G) ->
+    tb (fst p :: snd p) = tb (snd p) ->
+    Z.of_nat (hand (fst p)) <= cval (snd p) ->
+    value (snd p) = cval (snd p) ->
+    value_open p = cval G /\
+    (forall q, In q (selections G) -> value_open p <= value_open q).
+Proof.
+  intros G p Hw Hp Htb Hh Hrec.
+  assert (HNil : G <> []) by (intros ->; simpl in Hp; destruct Hp).
+  assert (HG : value G = cval G)
+    by (apply (value_step_eq G p); assumption).
+  assert (Hop : value_open p = cval G).
+  { unfold value_open; rewrite Hrec.
+    rewrite (controller_keeps (fst p) (cval (snd p)) Hh).
+    unfold keep_control.
+    pose proof (selections_cval G p Hp) as Hcv.
+    rewrite Htb in Hcv.
+    unfold cval, weight in *; lia. }
+  split; [exact Hop|].
+  pose proof (proj1 (opener_optimal_iff G p HNil Hp)) as Hmin.
+  intros q Hq; apply Hmin; [lia | exact Hq].
+Qed.
+
+(** The same criterion with the recursive value supplied by Berlekamp and
+    Scott, so only the controlled value of the remainder has to be checked. *)
+Corollary open_optimal_of_cval :
+  forall G p,
+    wf G -> In p (selections G) ->
+    tb (fst p :: snd p) = tb (snd p) ->
+    Z.of_nat (hand (fst p)) <= cval (snd p) ->
+    2 <= cval (snd p) ->
+    value_open p = cval G /\
+    (forall q, In q (selections G) -> value_open p <= value_open q).
+Proof.
+  intros G p Hw Hp Htb Hh Hc2.
+  apply (open_optimal_of_step G p Hw Hp Htb Hh).
+  apply value_cval_ge2; [exact (proj2 (selections_wf G p Hw Hp)) | exact Hc2].
+Qed.
+
+(** * Opening a loop *)
+
+(** A loop hands over four boxes, so the criterion asks the remainder to be
+    worth four. This is the shape every loop-opening case of Theorem 1.1
+    reduces to. *)
+Theorem open_loop_optimal_ge4 :
+  forall G l rest,
+    wf G -> In (Loop l, rest) (selections G) ->
+    tb (Loop l :: rest) = tb rest ->
+    4 <= cval rest ->
+    value_open (Loop l, rest) = cval G /\
+    (forall q, In q (selections G) ->
+       value_open (Loop l, rest) <= value_open q).
+Proof.
+  intros G l rest Hw Hp Htb Hc.
+  apply (open_optimal_of_cval G (Loop l, rest) Hw Hp);
+    cbn [fst snd hand]; [exact Htb | lia | lia].
+Qed.
+
+(** * Opening a chain *)
+
+(** A chain hands over two, so a remainder worth two is enough. *)
+Theorem open_chain_optimal_ge2 :
+  forall G k rest,
+    wf G -> In (Chain k, rest) (selections G) ->
+    tb (Chain k :: rest) = tb rest ->
+    2 <= cval rest ->
+    value_open (Chain k, rest) = cval G /\
+    (forall q, In q (selections G) ->
+       value_open (Chain k, rest) <= value_open q).
+Proof.
+  intros G k rest Hw Hp Htb Hc.
+  apply (open_optimal_of_cval G (Chain k, rest) Hw Hp);
+    cbn [fst snd hand]; [exact Htb | lia | lia].
+Qed.
+
+(** * Where the criterion applies *)
+
+(** With no three-chains anywhere, removing a loop never moves the bonus, so
+    the criterion applies to every loop of such a position. *)
+Theorem open_loop_optimal_no3 :
+  forall G l rest,
+    wf G -> In (Loop l, rest) (selections G) ->
+    existsb is_3chain_b G = false ->
+    rest <> [] ->
+    4 <= cval rest ->
+    value_open (Loop l, rest) = cval G /\
+    (forall q, In q (selections G) ->
+       value_open (Loop l, rest) <= value_open q).
+Proof.
+  intros G l rest Hw Hp H3 HrNil Hc.
+  apply (open_loop_optimal_ge4 G l rest Hw Hp); [|exact Hc].
+  apply tb_remove_loop_no3; [reflexivity | | exact HrNil].
+  pose proof (selections_perm G (Loop l, rest) Hp) as Hperm;
+    cbn [fst snd] in Hperm.
+  rewrite (existsb_perm is_3chain_b _ _ Hperm); exact H3.
+Qed.
+
+(** * A case of Theorem 1.1 *)
+
+(** A position of loops and three-chains keeps its terminal bonus when a
+    four-loop is removed: it is eight if nothing but loops remain and six as
+    soon as a three-chain is there, on both sides of the removal. *)
+Lemma tb_remove_4loop_only34 :
+  forall rest,
+    existsb is_loop_b rest = true ->
+    forallb (fun C => is_loop_b C || is_3chain_b C)%bool rest = true ->
+    tb (Loop 4 :: rest) = tb rest.
+Proof.
+  intros rest HL Hall.
+  assert (HrNil : rest <> [])
+    by (destruct rest; [simpl in HL; discriminate | discriminate]).
+  destruct (existsb is_3chain_b rest) eqn:E3.
+  - rewrite (tb_six rest HL E3 Hall).
+    apply tb_six.
+    + simpl; reflexivity.
+    + simpl; exact E3.
+    + simpl; exact Hall.
+  - assert (HallL : forallb is_loop_b rest = true).
+    { rewrite forallb_forall; intros x Hx.
+      rewrite forallb_forall in Hall; specialize (Hall x Hx).
+      apply orb_true_iff in Hall; destruct Hall as [H | H]; [exact H|].
+      exfalso.
+      assert (Hbad : existsb is_3chain_b rest = true)
+        by (apply existsb_exists; exists x; split; assumption).
+      congruence. }
+    rewrite (tb_all_loops rest HrNil HallL).
+    apply tb_all_loops; [discriminate | simpl; exact HallL].
+Qed.
+
+(** Case (i) of Allcock's Theorem 1.1 when a four-loop is present: with a
+    controlled value of two or more, opening the four-loop attains the value,
+    so it is an optimal opening. *)
+Theorem case_i_four_loop :
+  forall rest,
+    wf (Loop 4 :: rest) ->
+    existsb is_loop_b rest = true ->
+    forallb (fun C => is_loop_b C || is_3chain_b C)%bool rest = true ->
+    2 <= cval (Loop 4 :: rest) ->
+    value_open (Loop 4, rest) = cval (Loop 4 :: rest) /\
+    (forall q, In q (selections (Loop 4 :: rest)) ->
+       value_open (Loop 4, rest) <= value_open q).
+Proof.
+  intros rest Hw HL Hall Hc.
+  assert (Hp : In (Loop 4, rest) (selections (Loop 4 :: rest)))
+    by (simpl; left; reflexivity).
+  assert (Htb : tb (Loop 4 :: rest) = tb rest)
+    by (apply tb_remove_4loop_only34; assumption).
+  apply (open_loop_optimal_ge4 (Loop 4 :: rest) 4 rest Hw Hp Htb).
+  (* removing a four-loop raises the controlled value by four *)
+  pose proof (selections_cval (Loop 4 :: rest) (Loop 4, rest) Hp) as Hcv;
+    cbn [fst snd] in Hcv.
+  rewrite Htb, weight_loop_len in Hcv.
+  unfold cval in *; simpl Z.of_nat in Hcv; lia.
+Qed.
+
+(** * Case (i) in general *)
+
+(** Loops of eight or more are large, so a heap of them weighs nothing
+    against the controller. *)
+Lemma allbig_loops_ge8 :
+  forall L,
+    forallb is_loop_b L = true ->
+    (forall C, In C L -> (8 <= csize C)%nat) ->
+    allbig L.
+Proof.
+  intros L HL Hmin; unfold allbig; rewrite Forall_forall; intros C HC.
+  rewrite forallb_forall in HL; specialize (HL C HC).
+  destruct C as [k | k]; [simpl in HL; discriminate|].
+  unfold big; simpl hand; simpl csize.
+  specialize (Hmin (Loop k) HC); simpl csize in Hmin; lia.
+Qed.
+
+(** A position of one three-chain over a nonempty heap of loops scores the
+    six bonus, before and after a loop is taken out. *)
+Lemma tb_three_over_loops :
+  forall R,
+    forallb is_loop_b R = true -> R <> [] ->
+    tb (Chain 3 :: R) = 6.
+Proof.
+  intros R HR HNil; apply tb_six_of_loops_and_three; assumption.
+Qed.
+
+(** Case (i) of Allcock's Theorem 1.1. A three-chain over two or more loops
+    with a controlled value of two or more: opening a shortest loop attains
+    the value, so it is an optimal opening. *)
+Theorem case_i_optimal :
+  forall L l rest,
+    wf (Chain 3 :: L) ->
+    forallb is_loop_b L = true ->
+    In (Loop l, rest) (selections L) ->
+    (forall C, In C L -> (l <= csize C)%nat) ->
+    (2 <= length L)%nat ->
+    2 <= cval (Chain 3 :: L) ->
+    value_open (Loop l, Chain 3 :: rest) = cval (Chain 3 :: L) /\
+    (forall q, In q (selections (Chain 3 :: L)) ->
+       value_open (Loop l, Chain 3 :: rest) <= value_open q).
+Proof.
+  intros L l rest Hw HL Hsel Hmin Hlen Hc.
+  (* the opening is a selection of the whole position *)
+  assert (Hp : In (Loop l, Chain 3 :: rest) (selections (Chain 3 :: L))).
+  { simpl selections; right.
+    apply (in_map (fun p => (fst p, Chain 3 :: snd p)) (selections L)
+                  (Loop l, rest)); exact Hsel. }
+  (* what is left of the loops *)
+  pose proof (selections_perm L (Loop l, rest) Hsel) as Hperm;
+    cbn [fst snd] in Hperm.
+  assert (HLr : forallb is_loop_b rest = true).
+  { rewrite forallb_forall in HL |- *; intros C HC; apply HL.
+    eapply Permutation_in; [exact Hperm | right; exact HC]. }
+  assert (Hlr : length rest = pred (length L)).
+  { pose proof (selections_length L (Loop l, rest) Hsel) as H;
+      cbn [snd] in H; lia. }
+  assert (HrNil : rest <> [])
+    by (destruct rest; simpl in Hlr; [lia | discriminate]).
+  assert (Hminr : forall C, In C rest -> (l <= csize C)%nat).
+  { intros C HC; apply Hmin.
+    eapply Permutation_in; [exact Hperm | right; exact HC]. }
+  (* the bonus is six on both sides of the opening *)
+  assert (Htb1 : tb (Chain 3 :: rest) = 6)
+    by (apply tb_three_over_loops; assumption).
+  assert (Htb2 : tb (Loop l :: Chain 3 :: rest) = 6).
+  { rewrite <- (tb_perm (Chain 3 :: Loop l :: rest)) by apply perm_swap.
+    apply tb_six.
+    - apply (proj2 (existsb_exists is_loop_b _)).
+      exists (Loop l); split; [right; left; reflexivity | reflexivity].
+    - apply (proj2 (existsb_exists is_3chain_b _)).
+      exists (Chain 3); split; [left; reflexivity | reflexivity].
+    - rewrite forallb_forall; intros x Hx.
+      destruct Hx as [<- | [<- | Hx]]; [reflexivity | reflexivity |].
+      rewrite forallb_forall in HLr; rewrite (HLr x Hx); reflexivity. }
+  (* the controlled value of the remainder *)
+  assert (Hcb : cbase L = (Z.of_nat l - 8) + cbase rest).
+  { rewrite (selections_cbase L (Loop l, rest) Hsel); cbn [fst snd].
+    rewrite weight_loop_len; reflexivity. }
+  assert (HcG : cval (Chain 3 :: L) = 5 + cbase L).
+  { unfold cval; rewrite cbase_cons, weight_chain; simpl csize.
+    rewrite (tb_three_over_loops L HL);
+      [lia | intros HH; rewrite HH in Hlen; simpl in Hlen; lia]. }
+  assert (Hcr : cval (Chain 3 :: rest) = 5 + cbase rest).
+  { unfold cval; rewrite cbase_cons, weight_chain, Htb1; simpl csize; lia. }
+  assert (Hge4 : 4 <= cval (Chain 3 :: rest)).
+  { destruct (Nat.le_gt_cases 8 l) as [Hbig | Hsmall].
+    - (* every remaining loop is large, so the base weight is nonnegative *)
+      assert (Hall8 : forall C, In C rest -> (8 <= csize C)%nat)
+        by (intros C HC; pose proof (Hminr C HC); lia).
+      pose proof (allbig_cbase rest (allbig_loops_ge8 rest HLr Hall8)); lia.
+    - (* a short loop, which by evenness is a four-loop or a six-loop, and
+         there the hypothesis on the whole position bites *)
+      assert (HinL : In (Loop l) L).
+      { pose proof (selections_In L (Loop l, rest) Hsel) as H;
+          cbn [fst] in H; exact H. }
+      assert (HwfL : wf_comp (Loop l)).
+      { pose proof (wf_tail (Chain 3) L Hw) as HwL.
+        unfold wf in HwL; rewrite Forall_forall in HwL; apply HwL; exact HinL. }
+      destruct HwfL as [H4 Hev].
+      apply Nat.even_spec in Hev; destruct Hev as [k Hk].
+      assert (Hzl : Z.of_nat l <= 6) by lia.
+      lia. }
+  (* now the criterion applies *)
+  apply (open_loop_optimal_ge4 (Chain 3 :: L) l (Chain 3 :: rest) Hw Hp);
+    [| exact Hge4].
+  rewrite Htb2, Htb1; reflexivity.
+Qed.
+
+(** * Optimality as a comparison of closed forms *)
+
+(** What an opening is worth, read off the closed form of the remainder
+    rather than off the recursion. *)
+Theorem value_open_closed :
+  forall G p,
+    wf G -> In p (selections G) -> snd p <> [] ->
+    value_open p = vopen (fst p) (v41 (snd p)).
+Proof.
+  intros G p Hw Hp HrNil; unfold value_open.
+  rewrite (value_complete (snd p)); [reflexivity | | exact HrNil].
+  exact (proj2 (selections_wf G p Hw Hp)).
+Qed.
+
+(** So an opening is optimal exactly when the two closed forms agree, and
+    every case of Theorem 1.1 is an arithmetic comparison between [vopen] of
+    one [v41] and another. *)
+Theorem opening_optimal_closed_form :
+  forall G p,
+    wf G -> G <> [] -> In p (selections G) -> snd p <> [] ->
+    (vopen (fst p) (v41 (snd p)) = v41 G <->
+     forall q, In q (selections G) -> value_open p <= value_open q).
+Proof.
+  intros G p Hw HNil Hp HrNil.
+  rewrite <- (value_open_closed G p Hw Hp HrNil).
+  rewrite <- (value_complete G Hw HNil).
+  split.
+  - intros H; apply (proj1 (opener_optimal_iff G p HNil Hp)); symmetry; exact H.
+  - intros H; symmetry.
+    apply (proj2 (opener_optimal_iff G p HNil Hp)); exact H.
+Qed.
+
+(** The comparison as a decision procedure on a named opening. *)
+Definition opening_optimal_b (G : position) (p : comp * position) : bool :=
+  Z.eqb (vopen (fst p) (v41 (snd p))) (v41 G).
+
+Theorem opening_optimal_b_sound :
+  forall G p,
+    wf G -> G <> [] -> In p (selections G) -> snd p <> [] ->
+    opening_optimal_b G p = true ->
+    forall q, In q (selections G) -> value_open p <= value_open q.
+Proof.
+  intros G p Hw HNil Hp HrNil Hb.
+  apply (proj1 (opening_optimal_closed_form G p Hw HNil Hp HrNil)).
+  apply Z.eqb_eq; exact Hb.
+Qed.
+
+(** And it is complete: an optimal opening passes the test. *)
+Theorem opening_optimal_b_complete :
+  forall G p,
+    wf G -> G <> [] -> In p (selections G) -> snd p <> [] ->
+    (forall q, In q (selections G) -> value_open p <= value_open q) ->
+    opening_optimal_b G p = true.
+Proof.
+  intros G p Hw HNil Hp HrNil Hmin.
+  apply Z.eqb_eq.
+  apply (proj2 (opening_optimal_closed_form G p Hw HNil Hp HrNil)); exact Hmin.
+Qed.
+
+(** * The criterion is not vacuous *)
+
+(** Two eight-loops: opening either is optimal and the position is worth its
+    controlled value. *)
+Example open_loop_two_eights :
+  value_open (Loop 8, [Loop 8]) = cval [Loop 8; Loop 8].
+Proof. vm_compute; reflexivity. Qed.
+
+(** And the value agrees, so the opening really does attain it. *)
+Example value_two_eights : value [Loop 8; Loop 8] = cval [Loop 8; Loop 8].
+Proof. vm_compute; reflexivity. Qed.
+
+(** ****************************************************************** *)
+(** The loony endgame as a game tree of the host library.
+
+    [dab_tree] unfolds a position with [GameTrees.Trees.unfold_tree], so its
+    soundness and completeness against [reachable] come from the library
+    rather than from anything special to Dots and Boxes. [value_tval] then
+    proves that [value] is a [fold_tree] over that tree: the closed forms of
+    [GameTrees.DotsAndBoxes] are statements about the library's own game tree,
+    not a computation that avoids it. *)
+
+Import ListNotations.
+
+Open Scope Z_scope.
+
+(** * Unfolding a position *)
+
+(** A move removes one component, so the component count falls. *)
+Definition shorter (H G : position) : Prop := (length H < length G)%nat.
+
+#[export] Instance WF_shorter : WellFounded shorter.
+Proof. unfold shorter; apply Relations.wf_inverse_image, Nat.lt_wf_0. Defined.
+
+Definition dab_next (G : position)
+  : {l : list position | Forall (fun H => shorter H G) l}.
+Proof.
+  exists (map snd (selections G)).
+  apply Forall_forall; intros H HH.
+  apply in_map_iff in HH; destruct HH as [p [<- Hp]].
+  unfold shorter; pose proof (selections_length G p Hp); lia.
+Defined.
+
+Lemma dab_next_proj :
+  forall G, (dab_next G).1 = map snd (selections G).
+Proof. reflexivity. Qed.
+
+(** The game tree of a loony endgame, built by the library's unfolder. *)
+Definition dab_tree (G : position) : tree position :=
+  unfold_tree shorter dab_next G.
+
+(** Soundness and completeness are inherited. *)
+Theorem dab_tree_sound :
+  forall G H, In_tree H (dab_tree G) -> reachable dab_next G H.
+Proof. intros G; apply unfold_tree_sound. Qed.
+
+Theorem dab_tree_complete :
+  forall G H, reachable dab_next G H -> In_tree H (dab_tree G).
+Proof. intros G; apply unfold_tree_complete. Qed.
+
+Lemma dab_tree_unwrap :
+  forall G, dab_tree G = node G (map dab_tree (map snd (selections G))).
+Proof.
+  intros G; unfold dab_tree at 1.
+  rewrite unfold_tree_unwrap, dab_next_proj; reflexivity.
+Qed.
+
+(** * The value is a fold over that tree *)
+
+(** Pair each component with the value of what removing it leaves. *)
+Fixpoint zip_vopen (sel : list (comp * position)) (vs : list Z) : list Z :=
+  match sel, vs with
+  | p :: sr, v :: vr => vopen (fst p) v :: zip_vopen sr vr
+  | _, _ => []
+  end.
+
+Lemma zip_vopen_value :
+  forall sel, zip_vopen sel (map (fun p => value (snd p)) sel)
+              = map value_open sel.
+Proof.
+  induction sel as [|p sel IH]; simpl; [reflexivity|].
+  unfold value_open at 2; rewrite IH; reflexivity.
+Qed.
+
+(** The opener minimises over the components, reading the children's values
+    off the tree. *)
+Definition comb (G : position) (vs : list Z) : Z :=
+  match zip_vopen (selections G) vs with
+  | [] => 0
+  | x :: xs => minl x xs
+  end.
+
+Definition tval : tree position -> Z := fold_tree comb.
+
+Lemma tval_node :
+  forall G ts, tval (node G ts) = comb G (map tval ts).
+Proof. reflexivity. Qed.
+
+Theorem value_tval : forall G, value G = tval (dab_tree G).
+Proof.
+  assert (Haux : forall n G, (length G <= n)%nat -> value G = tval (dab_tree G)).
+  { induction n as [|n IH]; intros G Hn.
+    - assert (HG : G = []) by (destruct G; simpl in Hn; [reflexivity | lia]).
+      subst G; rewrite dab_tree_unwrap; simpl.
+      rewrite value_nil; reflexivity.
+    - rewrite dab_tree_unwrap, tval_node, !map_map.
+      assert (Hmap : map (fun x => tval (dab_tree (snd x))) (selections G)
+                     = map (fun p => value (snd p)) (selections G)).
+      { apply map_ext_in; intros p Hp.
+        symmetry; apply IH.
+        pose proof (selections_length G p Hp); lia. }
+      rewrite Hmap.
+      unfold comb; rewrite zip_vopen_value.
+      rewrite value_unfold.
+      destruct (selections G) as [|p more]; reflexivity. }
+  intros G; apply (Haux (length G)); lia.
+Qed.
+
+(** So every closed form proved of [value] is a statement about this tree.
+    In particular the complete value of Allcock's Theorem 4.1 evaluates it. *)
+Corollary v41_tval :
+  forall G, wf G -> G <> [] -> tval (dab_tree G) = v41 G.
+Proof.
+  intros G Hw Hn; rewrite <- value_tval; apply value_complete; assumption.
+Qed.
+
+(** And the controlled value bounds the tree's value from below. *)
+Corollary cval_le_tval :
+  forall G, wf G -> cval G <= tval (dab_tree G).
+Proof.
+  intros G Hw; rewrite <- value_tval; apply cval_le_value; exact Hw.
+Qed.
+
+(** ****************************************************************** *)
+(** The board as a game tree of the host library.
+
+    [GameTrees.DotsAndBoxes] unfolds a loony position, a multiset of
+    components, and so never reaches the board itself. This file unfolds the
+    board: a state, its legal edges, and the states they lead to.
+
+    Drawing an edge shortens the undrawn list, so [flip board_step] is
+    wellfounded and [GameTrees.Trees.unfold_tree] applies. Soundness and
+    completeness against [reachable] come from the library. What is proved
+    here beyond that is [reachable_iff_legal]: the states in the tree are
+    exactly the states legal play reaches, so [run] and [legal] of
+    [GameTrees.DotsAndBoxesBoard] and [reachable] of the library name the same
+    set. *)
+
+Section BoardTree.
+
+Variables m n : nat.
+
+(** * The step relation *)
+
+(** One drawn edge. *)
+Inductive board_step : st -> st -> Prop :=
+| bstep : forall s e, In e (db_moves m n s) -> board_step s (db_play m n s e).
+
+(** The undrawn edges are the measure. *)
+Definition blater (s1 s2 : st) : Prop :=
+  (db_measure m n s1 < db_measure m n s2)%nat.
+
+Instance WF_blater : WellFounded blater.
+Proof. unfold blater; apply Relations.wf_inverse_image, Nat.lt_wf_0. Defined.
+
+Instance WF_flip_board_step : WellFounded (flip board_step).
+Proof.
+  eapply WF_subrelation, WF_blater.
+  intros s2 s1; inversion 1; subst.
+  unfold blater; apply db_measure_play; assumption.
+Defined.
+
+(** Every legal edge yields a step, so the successor list carries its own
+    decrease proof. *)
+Lemma board_next_intrinsic :
+  forall s : st, {l : list st | Forall (board_step s) l}.
+Proof.
+  intros s; exists (map (db_play m n s) (db_moves m n s)).
+  apply Forall_map, Forall_forall; intros e He; apply bstep; exact He.
+Defined.
+
+Lemma board_next_proj :
+  forall s,
+    (board_next_intrinsic s).1 = map (db_play m n s) (db_moves m n s).
+Proof. intros s; reflexivity. Qed.
+
+(** * The tree *)
+
+(** Type-checking this is the finiteness proof. *)
+Definition board_tree (s : st) : tree st :=
+  unfold_tree (flip board_step) board_next_intrinsic s.
+
+Theorem board_tree_sound :
+  forall s t, In_tree t (board_tree s) -> reachable board_next_intrinsic s t.
+Proof. intros s; apply unfold_tree_sound. Qed.
+
+Theorem board_tree_complete :
+  forall s t, reachable board_next_intrinsic s t -> In_tree t (board_tree s).
+Proof. intros s; apply unfold_tree_complete. Qed.
+
+(** * The library step is the board step *)
+
+Lemma step_iff_board_step :
+  forall s1 s2, step board_next_intrinsic s1 s2 <-> board_step s1 s2.
+Proof.
+  intros s1 s2; unfold step; rewrite board_next_proj; split.
+  - intros H; apply in_map_iff in H; destruct H as [e [<- He]].
+    apply bstep; exact He.
+  - intros H; inversion H; subst.
+    apply in_map_iff; eexists; split; [reflexivity | assumption].
+Qed.
+
+(** * Legal play and reachability agree *)
+
+Lemma run_app :
+  forall ms ms' s, run m n s (ms ++ ms') = run m n (run m n s ms) ms'.
+Proof.
+  induction ms as [|e ms IH]; intros ms' s; simpl; [reflexivity | apply IH].
+Qed.
+
+Lemma legal_app :
+  forall ms ms' s,
+    legal m n s (ms ++ ms') <->
+    (legal m n s ms /\ legal m n (run m n s ms) ms').
+Proof.
+  induction ms as [|e ms IH]; intros ms' s; simpl.
+  - split; [intros H; split; [exact I | exact H] | intros [_ H]; exact H].
+  - rewrite IH; split.
+    + intros [He [Hm Hm']]; repeat split; assumption.
+    + intros [[He Hm] Hm']; repeat split; assumption.
+Qed.
+
+(** Any legal run lands on a reachable state. *)
+Theorem reachable_of_legal :
+  forall ms s, legal m n s ms -> reachable board_next_intrinsic s (run m n s ms).
+Proof.
+  induction ms as [|e ms IH]; intros s Hl; simpl in Hl |- *.
+  - apply rt_refl.
+  - destruct Hl as [He Hms].
+    eapply rt_trans; [| apply IH; exact Hms].
+    apply rt_step, step_iff_board_step, bstep; exact He.
+Qed.
+
+(** And every reachable state is the end of a legal run. *)
+Theorem legal_of_reachable :
+  forall s t,
+    reachable board_next_intrinsic s t ->
+    exists ms, legal m n s ms /\ run m n s ms = t.
+Proof.
+  intros s t H; induction H as [x y Hstep | x | x y z Hxy IHxy Hyz IHyz].
+  - apply step_iff_board_step in Hstep; inversion Hstep; subst.
+    exists [e]; split; [split; [assumption | exact I] | reflexivity].
+  - exists []; split; [exact I | reflexivity].
+  - destruct IHxy as [ms1 [Hl1 Hr1]].
+    destruct IHyz as [ms2 [Hl2 Hr2]].
+    exists (ms1 ++ ms2); split.
+    + apply legal_app; split; [exact Hl1 | rewrite Hr1; exact Hl2].
+    + rewrite run_app, Hr1; exact Hr2.
+Qed.
+
+(** So the tree holds exactly the states legal play reaches. *)
+Theorem reachable_iff_legal :
+  forall s t,
+    reachable board_next_intrinsic s t <->
+    exists ms, legal m n s ms /\ run m n s ms = t.
+Proof.
+  intros s t; split; [apply legal_of_reachable|].
+  intros [ms [Hl Hr]]; rewrite <- Hr; apply reachable_of_legal; exact Hl.
+Qed.
+
+(** The tree of a board is the tree of its legal play. *)
+Theorem board_tree_iff_legal :
+  forall s t,
+    In_tree t (board_tree s) <->
+    exists ms, legal m n s ms /\ run m n s ms = t.
+Proof.
+  intros s t; split.
+  - intros H; apply reachable_iff_legal, board_tree_sound; exact H.
+  - intros H; apply board_tree_complete, reachable_iff_legal; exact H.
+Qed.
+
+(** * Wellformedness travels through the tree *)
+
+(** Every state in the tree of a wellformed board is wellformed, so the
+    counting theory of [GameTrees.DotsAndBoxesBoard] applies at every node. *)
+Theorem board_tree_wf :
+  forall s t, wf_st m n s -> In_tree t (board_tree s) -> wf_st m n t.
+Proof.
+  intros s t Hw Hin.
+  apply board_tree_iff_legal in Hin; destruct Hin as [ms [Hl <-]].
+  apply wf_run; assumption.
+Qed.
+
+(** In particular the whole tree from the empty board is wellformed. *)
+Corollary board_tree_init_wf :
+  forall t, In_tree t (board_tree (init)) -> wf_st m n t.
+Proof. intros t; apply board_tree_wf, wf_init. Qed.
+
+End BoardTree.
