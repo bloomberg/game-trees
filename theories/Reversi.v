@@ -201,7 +201,7 @@ Fixpoint find_flips (b : board) (p : player)
       match get_cell b pos with
       | Some q =>
         if dec_eq_player q p then acc  (* bookend: return accumulated opponents *)
-        else find_flips b p r c dr dc (acc ++ [pos]) fuel'  (* opponent: accumulate *)
+        else find_flips b p r c dr dc (pos :: acc) fuel'  (* opponent: accumulate *)
       | None => []  (* empty: no capture *)
       end
     else []  (* out of bounds: no capture *)
@@ -215,11 +215,40 @@ Definition flips_in_direction (b : board) (p : player)
 Definition all_flips (b : board) (p : player) (row col : nat) : list nat :=
   concat (map (flips_in_direction b p row col) all_directions).
 
+(** Short-circuiting capture test for move legality. This avoids constructing
+   the flip list when clients only need to know whether a move is legal. *)
+Fixpoint has_flips_from (b : board) (p : player)
+    (row col : Z) (dr dc : Z) (seen_opponent : bool) (fuel : nat) : bool :=
+  match fuel with
+  | O => false
+  | S fuel' =>
+    let r := (row + dr)%Z in
+    let c := (col + dc)%Z in
+    if ((0 <=? r) && (r <? 8) && (0 <=? c) && (c <? 8))%Z then
+      let pos := Z.to_nat (r * 8 + c)%Z in
+      match get_cell b pos with
+      | Some q =>
+        if dec_eq_player q p
+        then seen_opponent
+        else has_flips_from b p r c dr dc true fuel'
+      | None => false
+      end
+    else false
+  end.
+
+Definition has_flips_in_direction (b : board) (p : player)
+    (row col : nat) (d : direction) : bool :=
+  let '(dr, dc) := d in
+  has_flips_from b p (Z.of_nat row) (Z.of_nat col) dr dc false 7.
+
+Definition has_any_flips (b : board) (p : player) (row col : nat) : bool :=
+  existsb (has_flips_in_direction b p row col) all_directions.
+
 (** A move at (row, col) is valid if it flips at least one opponent piece. *)
 Definition is_valid_move (b : board) (p : player) (row col : nat) : bool :=
   in_bounds row col &&
   match get_cell b (pos_of row col) with
-  | None => negb (Nat.eqb (length (all_flips b p row col)) 0)
+  | None => has_any_flips b p row col
   | Some _ => false
   end.
 
@@ -499,11 +528,10 @@ Proof.
       * destruct (dec_eq_player q p).
         -- left. exact Hin.
         -- apply IH in Hin.
-           destruct Hin as [Hin_app | Hin_cell].
-           ++ apply in_app_iff in Hin_app.
-              destruct Hin_app as [Hin_acc | [Heq | []]].
-              ** left. exact Hin_acc.
+           destruct Hin as [Hin_cons | Hin_cell].
+           ++ destruct Hin_cons as [Heq | Hin_acc].
               ** right. subst. rewrite Ecell. discriminate.
+              ** left. exact Hin_acc.
            ++ right. exact Hin_cell.
       * contradiction.
     + contradiction.
@@ -542,10 +570,8 @@ Proof.
       * destruct (dec_eq_player q p).
         -- left. exact Hin.
         -- apply IH in Hin.
-           destruct Hin as [Hin_app | Hin_bnd].
-           ++ apply in_app_iff in Hin_app.
-              destruct Hin_app as [Hin_acc | [Heq | []]].
-              ** left. exact Hin_acc.
+           destruct Hin as [Hin_cons | Hin_bnd].
+           ++ destruct Hin_cons as [Heq | Hin_acc].
               ** right. subst.
                  apply Bool.andb_true_iff in Ebnd as [Ebnd Ec8].
                  apply Bool.andb_true_iff in Ebnd as [Ebnd Ec0].
@@ -553,6 +579,7 @@ Proof.
                  apply Z.leb_le in Er0. apply Z.ltb_lt in Er8.
                  apply Z.leb_le in Ec0. apply Z.ltb_lt in Ec8.
                  lia.
+              ** left. exact Hin_acc.
            ++ right. exact Hin_bnd.
       * contradiction.
     + contradiction.
@@ -588,7 +615,6 @@ Proof.
   apply Bool.andb_true_iff in Hbnd as [Hr Hc].
   apply Nat.ltb_lt in Hr. apply Nat.ltb_lt in Hc.
   destruct (get_cell b (pos_of row col)) eqn:Ecell; [discriminate|].
-  apply negb_true_iff in Hcell. apply Nat.eqb_neq in Hcell.
   unfold place_piece.
   assert (Hpos_lt : pos_of row col < length b) by (unfold pos_of; lia).
   rewrite apply_flips_preserves_empty.
